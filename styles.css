@@ -1,0 +1,25 @@
+.s3-sync-log-modal,
+.s3-sync-dry-run-modal,
+.s3-sync-conflict-modal {
+  min-width: 520px;
+}
+
+.s3-sync-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.s3-sync-table th,
+.s3-sync-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  text-align: left;
+}
+
+.s3-sync-log-level-error {
+  color: var(--text-error);
+}
+
+.s3-sync-log-level-warning {
+  color: var(--text-warning);
+}

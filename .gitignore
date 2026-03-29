@@ -1,0 +1,20 @@
+node_modules/
+coverage/
+dist/
+*.log
+*.tmp
+*.tgz
+*.zip
+*.bak
+*.orig
+*.tsbuildinfo
+
+# Local OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.obsidian/
+
+# Build artifacts
+main.js.map

@@ -1,0 +1,49 @@
+{
+  "name": "obsidian-s3-sync",
+  "version": "1.0.0",
+  "description": "S3-compatible sync plugin for Obsidian",
+  "main": "main.js",
+  "engines": {
+    "node": ">=24.14.1 <25",
+    "npm": ">=11 <12"
+  },
+  "packageManager": "npm@11.11.0",
+  "volta": {
+    "node": "24.14.1",
+    "npm": "11.11.0"
+  },
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src tests --ext .ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.967.0",
+    "@aws-sdk/lib-storage": "3.967.0",
+    "@aws-sdk/s3-presigned-post": "3.967.0",
+    "micromatch": "4.0.8"
+  },
+  "devDependencies": {
+    "@types/micromatch": "4.0.9",
+    "@types/node": "22.13.14",
+    "@typescript-eslint/eslint-plugin": "8.28.0",
+    "@typescript-eslint/parser": "8.28.0",
+    "@vitest/coverage-v8": "3.1.1",
+    "buffer": "6.0.3",
+    "builtin-modules": "4.0.0",
+    "esbuild": "0.25.2",
+    "eslint": "9.23.0",
+    "events": "3.3.0",
+    "obsidian": "1.12.3",
+    "path-browserify": "1.0.1",
+    "process": "0.11.10",
+    "stream-browserify": "3.0.0",
+    "tslib": "2.8.1",
+    "typescript": "5.8.2",
+    "util": "0.12.5",
+    "vitest": "3.1.1"
+  }
+}
