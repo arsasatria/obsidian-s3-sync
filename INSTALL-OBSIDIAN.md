@@ -1,38 +1,38 @@
-# Instalasi Plugin S3 Sync ke Obsidian
+# Installing the S3 Sync Plugin in Obsidian
 
-Dokumen ini menjelaskan cara memasang plugin `S3 Sync` secara manual ke Obsidian.
+This document explains how to install the `S3 Sync` plugin manually in Obsidian.
 
-## Prasyarat
+## Prerequisites
 
-- Obsidian Desktop atau Mobile dengan Community Plugins aktif
-- Folder vault Obsidian yang sudah bisa dibuka normal
-- Artefak plugin hasil build:
+- Obsidian Desktop or Mobile with Community Plugins enabled
+- An Obsidian vault that opens normally
+- Built plugin artifacts:
   - `main.js`
   - `manifest.json`
   - `styles.css`
 
-## Lokasi File Plugin
+## Plugin Directory
 
-Plugin Obsidian manual dipasang di folder:
+Manually installed Obsidian plugins must be placed in:
 
 ```text
 <VAULT>/.obsidian/plugins/obsidian-s3-sync/
 ```
 
-Contoh di Windows:
+Example on Windows:
 
 ```text
-C:\Users\nama-anda\Documents\MyVault\.obsidian\plugins\obsidian-s3-sync\
+C:\Users\your-name\Documents\MyVault\.obsidian\plugins\obsidian-s3-sync\
 ```
 
-## Langkah Instalasi Manual
+## Manual Installation Steps
 
-1. Tutup Obsidian, atau minimal tutup vault target terlebih dahulu.
-2. Pastikan folder plugin ini sudah dibuild dan menghasilkan `main.js`, `manifest.json`, dan `styles.css`.
-3. Buka folder vault Anda.
-4. Masuk ke folder `.obsidian/plugins/`.
-5. Buat folder baru bernama `obsidian-s3-sync`.
-6. Salin file berikut ke dalam folder tersebut:
+1. Close Obsidian, or at minimum close the target vault.
+2. Ensure the plugin has been built and that `main.js`, `manifest.json`, and `styles.css` are present.
+3. Open your vault folder.
+4. Navigate to `.obsidian/plugins/`.
+5. Create a new folder named `obsidian-s3-sync`.
+6. Copy the following files into that folder:
 
 ```text
 main.js
@@ -40,7 +40,7 @@ manifest.json
 styles.css
 ```
 
-Hasil akhirnya harus seperti ini:
+The final structure should look like this:
 
 ```text
 <VAULT>/.obsidian/plugins/obsidian-s3-sync/main.js
@@ -48,69 +48,69 @@ Hasil akhirnya harus seperti ini:
 <VAULT>/.obsidian/plugins/obsidian-s3-sync/styles.css
 ```
 
-7. Buka kembali Obsidian.
-8. Masuk ke `Settings -> Community plugins`.
-9. Pastikan `Restricted mode` sudah nonaktif.
-10. Aktifkan plugin `S3 Sync`.
+7. Reopen Obsidian.
+8. Go to `Settings -> Community plugins`.
+9. Ensure `Restricted mode` is disabled.
+10. Enable the `S3 Sync` plugin.
 
-## Konfigurasi Awal
+## Initial Configuration
 
-Setelah plugin aktif:
+After the plugin is enabled:
 
-1. Buka `Settings -> S3 Sync`.
-2. Isi parameter koneksi:
+1. Open `Settings -> S3 Sync`.
+2. Fill in the connection settings:
    - `Endpoint URL`
    - `Bucket name`
-   - `Region` (opsional, bisa dikosongkan untuk banyak layanan S3-compatible)
+   - `Region` (optional; it may be left blank for many S3-compatible services)
    - `Access key ID`
    - `Secret access key`
-   - `Prefix` bila perlu
-3. Untuk MinIO, biarkan `Force path style` tetap aktif.
-4. Tekan `Test connection`.
-5. Jika koneksi sukses, jalankan `Push`, `Fetch`, atau `Run full sync now` dari Command Palette atau tombol manual plugin.
+   - `Prefix`, if needed
+3. For MinIO, keep `Force path style` enabled.
+4. Click `Test connection`.
+5. Once the connection succeeds, run `Push`, `Fetch`, or `Run full sync now` from the Command Palette or the plugin's manual action buttons.
 
-## Upgrade Versi Plugin
+## Updating the Plugin
 
-Jika ingin memperbarui plugin:
+To update the plugin:
 
-1. Nonaktifkan plugin `S3 Sync` di Obsidian.
-2. Ganti file `main.js`, `manifest.json`, dan `styles.css` dengan versi baru.
-3. Buka kembali Obsidian atau reload aplikasi.
-4. Aktifkan lagi pluginnya bila perlu.
+1. Disable the `S3 Sync` plugin in Obsidian.
+2. Replace `main.js`, `manifest.json`, and `styles.css` with the new versions.
+3. Reopen Obsidian or reload the application.
+4. Re-enable the plugin if necessary.
 
-## Build Ulang dari Source
+## Building from Source
 
-Jika Anda ingin build sendiri dari source repo ini:
+If you want to build the plugin from source:
 
 ```bash
 npm install
 npm run build
 ```
 
-Untuk proyek ini, baseline runtime yang direkomendasikan adalah `Node.js 24.14.1 LTS`.
+For this project, the recommended runtime baseline is `Node.js 24.14.1 LTS`.
 
-## Troubleshooting Singkat
+## Troubleshooting
 
-### Plugin tidak muncul di daftar
+### The plugin does not appear in the list
 
-- Pastikan folder plugin bernama tepat `obsidian-s3-sync`
-- Pastikan file `manifest.json` ada di folder plugin
-- Pastikan `Restricted mode` dimatikan
+- Ensure the plugin folder is named exactly `obsidian-s3-sync`
+- Ensure `manifest.json` is present in the plugin folder
+- Ensure `Restricted mode` is disabled
 
-### Plugin gagal aktif
+### The plugin fails to load
 
-- Periksa apakah `main.js` hasil build terbaru
-- Pastikan `manifest.json` dan `styles.css` ikut diperbarui bersama `main.js`
-- Buka `Developer Console` Obsidian untuk melihat error runtime
+- Verify that `main.js` is the latest build
+- Ensure `manifest.json` and `styles.css` were updated together with `main.js`
+- Open the Obsidian `Developer Console` to inspect runtime errors
 
-### Koneksi S3 gagal
+### The S3 connection fails
 
-- Pastikan endpoint, bucket, dan kredensial benar
-- Untuk MinIO atau layanan self-hosted, cek `Force path style`
-- Pastikan koneksi menggunakan HTTPS bila server Anda mengharuskannya
+- Ensure the endpoint, bucket, and credentials are correct
+- For MinIO or self-hosted services, verify `Force path style`
+- Ensure the connection uses HTTPS if your server requires it
 
-## Catatan Keamanan
+## Security Notes
 
-- Uji dulu plugin di vault dummy sebelum dipakai di vault utama
-- Simpan backup vault sebelum sync pertama
-- Jangan membagikan `Access key ID` dan `Secret access key`
+- Test the plugin in a disposable vault before using it in a primary vault
+- Keep a backup of the vault before the first sync
+- Do not share your `Access key ID` or `Secret access key`

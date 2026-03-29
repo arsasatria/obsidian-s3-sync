@@ -1,62 +1,62 @@
 # Obsidian S3 Sync
 
-Plugin Obsidian untuk sinkronisasi vault ke penyimpanan `S3-compatible` seperti AWS S3, MinIO, Cloudflare R2, dan Backblaze B2.
+An Obsidian plugin for synchronizing vaults with `S3-compatible` object storage such as AWS S3, MinIO, Cloudflare R2, and Backblaze B2.
 
-Plugin ini dirancang untuk kolaborasi lintas perangkat dengan fokus pada:
+This plugin is designed for cross-device collaboration with a focus on:
 
-- sinkronisasi dua arah yang reliabel
-- three-way diff untuk deteksi perubahan
-- conflict handling yang aman
-- pengalaman operasional yang jelas lewat log, monitor, dan dry run
+- reliable bidirectional synchronization
+- three-way diff–based change detection
+- safe conflict handling
+- clear operational visibility through logs, monitoring, and dry runs
 
 ## Highlights
 
-- `Push`, `Fetch`, dan `Sync` manual
-- Bidirectional sync dengan three-way diff
-- Incremental sync berbasis event vault
-- Sync on save, startup sync, scheduled sync
+- Manual `Push`, `Fetch`, and `Sync` actions
+- Bidirectional synchronization with three-way diff
+- Incremental sync based on vault events
+- Sync on save, startup sync, and scheduled sync
 - Near-realtime remote polling
-- Exclude patterns dan opsi sync folder `.obsidian`
-- Dry run preview sebelum eksekusi
+- Exclude patterns and optional `.obsidian` synchronization
+- Dry-run preview before execution
 - Conflict rules: `keep-local`, `keep-remote`, `keep-both`, `ask-user`
-- Live Sync Monitor dan Sync Log di dalam Obsidian
-- Mobile safe mode untuk Android/iOS
-- Safe boot mode untuk mencegah UI terkunci saat background sync gagal berulang
-- ASCII-safe remote key encoding untuk path dengan emoji atau karakter non-ASCII
-- Smart text compression dan safety snapshots
+- Live Sync Monitor and Sync Log inside Obsidian
+- Mobile safe mode for Android and iOS
+- Safe boot mode to prevent the UI from becoming unusable after repeated background sync failures
+- ASCII-safe remote key encoding for paths containing emoji or other non-ASCII characters
+- Smart text compression and safety snapshots
 
 ## Push, Fetch, Sync
 
-- `Push`: kirim perubahan lokal ke S3. Cocok saat device ini adalah sumber perubahan terbaru.
-- `Fetch`: ambil perubahan dari S3 ke lokal. Cocok saat Anda ingin menarik update dari device lain.
-- `Sync`: sinkronisasi dua arah penuh. Plugin membandingkan `local`, `last-sync`, dan `remote`, lalu menentukan upload, download, delete, atau conflict handling.
+- `Push`: sends local changes to S3. Use this when the current device is the authoritative source of the latest edits.
+- `Fetch`: pulls changes from S3 to the local vault. Use this when you want to retrieve updates from another device.
+- `Sync`: performs a full bidirectional synchronization. The plugin compares `local`, `last-sync`, and `remote` state to determine uploads, downloads, deletions, and conflict handling.
 
-Panduan cepat:
+Recommended usage:
 
-- selesai menulis di device ini: pakai `Push`
-- baru buka device lain: pakai `Fetch`
-- pemakaian normal harian: pakai `Sync`
+- after finishing work on the current device: use `Push`
+- when opening the vault on another device: use `Fetch`
+- for normal day-to-day operation: use `Sync`
 
 ## Platform Support
 
 - `Windows`, `macOS`, `Linux`: supported
-- `Android`: supported dengan `Mobile safe mode`
-- `iOS`, `iPadOS`: perlu validasi lebih lanjut pada setup nyata
+- `Android`: supported with `Mobile safe mode`
+- `iOS`, `iPadOS`: require additional validation on real-world setups
 
 ## LTS Baseline
 
-Repo ini dipin untuk baseline jangka panjang:
+This repository is pinned to a long-term support baseline:
 
 - `Node.js 24.14.1 LTS`
 - `npm 11.11.0`
 
-File terkait:
+Related files:
 
 - [`package.json`](./package.json)
 - [`.nvmrc`](./.nvmrc)
 - [`.node-version`](./.node-version)
 
-Jika memakai `nvm`:
+If you use `nvm`:
 
 ```bash
 nvm use
@@ -64,19 +64,19 @@ nvm use
 
 ## Development
 
-Install dependency:
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-Jalankan dev build:
+Run the development build:
 
 ```bash
 npm run dev
 ```
 
-Build production:
+Create a production build:
 
 ```bash
 npm run build
@@ -84,51 +84,51 @@ npm run build
 
 ## Quality Checks
 
-Jalankan test:
+Run the test suite:
 
 ```bash
 npm test
 ```
 
-Jalankan coverage:
+Run coverage:
 
 ```bash
 npm run test:coverage
 ```
 
-Jalankan lint:
+Run linting:
 
 ```bash
 npm run lint
 ```
 
-Status verifikasi terbaru repo ini:
+Current verification status:
 
-- test lulus
-- lint lulus
-- build lulus
+- tests pass
+- lint passes
+- build passes
 
-## Install ke Obsidian
+## Installation
 
-File hasil build yang dipakai untuk instalasi manual:
+Build artifacts required for manual installation:
 
 - `main.js`
 - `manifest.json`
 - `styles.css`
 
-Langkah ringkas:
+Quick steps:
 
-1. Jalankan `npm run build`
-2. Salin `main.js`, `manifest.json`, dan `styles.css`
-3. Tempatkan ke:
+1. Run `npm run build`
+2. Copy `main.js`, `manifest.json`, and `styles.css`
+3. Place them in:
 
 ```text
 <VAULT>/.obsidian/plugins/obsidian-s3-sync/
 ```
 
-4. Aktifkan dari `Settings -> Community plugins`
+4. Enable the plugin from `Settings -> Community plugins`
 
-Panduan detail:
+Detailed instructions:
 
 - [INSTALL-OBSIDIAN.md](./INSTALL-OBSIDIAN.md)
 
@@ -136,21 +136,20 @@ Panduan detail:
 
 - [CHANGELOG.md](./CHANGELOG.md)
 - [PUBLISH-CHECKLIST.md](./PUBLISH-CHECKLIST.md)
-- [PRD-ObsidianS3SyncPlugin.md](./PRD-ObsidianS3SyncPlugin.md)
 
-Struktur penting:
+Key project files:
 
-- [`src/main.ts`](./src/main.ts): entry point plugin
-- [`src/sync/orchestrator.ts`](./src/sync/orchestrator.ts): orkestrasi sync utama
+- [`src/main.ts`](./src/main.ts): plugin entry point
+- [`src/sync/orchestrator.ts`](./src/sync/orchestrator.ts): core sync orchestration
 - [`src/sync/differ.ts`](./src/sync/differ.ts): three-way diff engine
-- [`src/s3/store.ts`](./src/s3/store.ts): operasi S3-compatible
+- [`src/s3/store.ts`](./src/s3/store.ts): S3-compatible storage operations
 - [`src/settings/tab.ts`](./src/settings/tab.ts): settings UI
-- [`src/ui/monitor-view.ts`](./src/ui/monitor-view.ts): live monitor
-- [`tests`](./tests): unit dan integration tests
+- [`src/ui/monitor-view.ts`](./src/ui/monitor-view.ts): live monitor view
+- [`tests`](./tests): unit and integration tests
 
 ## Operational Notes
 
-- Gunakan vault dummy saat pengujian awal.
-- Backup vault sebelum sync pertama.
-- Untuk MinIO dan banyak self-hosted S3, aktifkan `Force path style`.
-- Untuk maintenance, hindari upgrade dependency tanpa rerun `npm test`, `npm run lint`, dan `npm run build`.
+- Use a disposable test vault during initial validation.
+- Back up the vault before the first sync.
+- For MinIO and many self-hosted S3 services, keep `Force path style` enabled.
+- For long-term maintenance, avoid upgrading dependencies without rerunning `npm test`, `npm run lint`, and `npm run build`.

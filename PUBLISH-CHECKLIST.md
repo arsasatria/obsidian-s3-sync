@@ -6,6 +6,7 @@
 - Confirm `.gitignore` excludes `node_modules`, `coverage`, and local scratch files.
 - Confirm no credentials, tokens, or endpoint secrets are present in committed files or screenshots.
 - Confirm `manifest.json` fields are final: `id`, `name`, `version`, `minAppVersion`, `description`, and author metadata.
+- Confirm all user-facing Markdown documentation is written in formal English.
 
 ## Quality Gates
 
