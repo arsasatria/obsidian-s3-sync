@@ -60,6 +60,20 @@ class FakeRemoteStore implements RemoteStore {
     return { etag: "etag-1", manifest: structuredClone(this.manifest) };
   }
 
+  async listFiles(): Promise<Record<string, FileEntry>> {
+    const files: Record<string, FileEntry> = {};
+    for (const [path, body] of this.files.entries()) {
+      files[path] = {
+        deleted: false,
+        etag: await sha256(body),
+        mtime: Date.now(),
+        sha256: await sha256(body),
+        size: body.byteLength,
+      };
+    }
+    return files;
+  }
+
   async putManifest(manifest: RemoteManifest): Promise<string> {
     this.manifest = structuredClone(manifest);
     return "etag-2";
@@ -183,6 +197,16 @@ describe("SyncOrchestrator", () => {
     const orchestrator = createOrchestrator();
     await orchestrator.testConnection();
     expect(remote.testConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("downloads remote objects that exist in bucket listing even when missing from manifest", async () => {
+    const body = new TextEncoder().encode("listed only");
+    remote.files.set("listed.md", body);
+    const orchestrator = createOrchestrator();
+
+    await orchestrator.triggerFullSync({ direction: "pull" });
+
+    expect(vault.hasFile("listed.md")).toBe(true);
   });
 
   it("reports sync errors", async () => {

@@ -28865,6 +28865,9 @@ function normalizePathSlashes(path) {
 function encodePathSegment(segment) {
   return encodeURIComponent(segment);
 }
+function decodePathSegment(segment) {
+  return decodeURIComponent(segment);
+}
 function encodeRemotePath(path) {
   return normalizePathSlashes(path).split("/").filter((segment) => segment.length > 0).map(encodePathSegment).join("/");
 }
@@ -28875,6 +28878,15 @@ function joinRemoteKey(prefix, path) {
     return normalizedPath;
   }
   return `${safePrefix}${normalizedPath}`.replace(/\/{2,}/g, "/");
+}
+function remoteKeyToPath(prefix, key) {
+  const normalizedKey = normalizePathSlashes(key);
+  const normalizedPrefix = prefix ? `${encodeRemotePath(prefix).replace(/\/+$/, "")}/` : "";
+  if (normalizedPrefix && !normalizedKey.startsWith(normalizedPrefix)) {
+    return null;
+  }
+  const relativeKey = normalizedPrefix ? normalizedKey.slice(normalizedPrefix.length) : normalizedKey;
+  return relativeKey.split("/").filter((segment) => segment.length > 0).map(decodePathSegment).join("/");
 }
 function manifestKey(prefix) {
   return joinRemoteKey(prefix, ".s3sync/manifest.json");
@@ -29133,6 +29145,44 @@ var AwsRemoteStore = class {
         return emptyManifest();
       }
       throw describeError("Remote manifest fetch", error, key);
+    }
+  }
+  async listFiles() {
+    const files = {};
+    const prefix = this.settings.prefix ? `${joinRemoteKey(this.settings.prefix, "").replace(/\/+$/, "")}/` : "";
+    const manifest = manifestKey(this.settings.prefix);
+    let continuationToken;
+    try {
+      do {
+        const response = await this.client.send(
+          new ListObjectsV2Command({
+            Bucket: this.settings.bucketName,
+            ContinuationToken: continuationToken,
+            Prefix: prefix || void 0
+          })
+        );
+        for (const entry of response.Contents ?? []) {
+          const key = entry.Key;
+          if (!key || key === manifest) {
+            continue;
+          }
+          const path = remoteKeyToPath(this.settings.prefix, key);
+          if (!path || path.startsWith(".s3sync/")) {
+            continue;
+          }
+          files[path] = {
+            deleted: false,
+            etag: entry.ETag?.replace(/"/g, "") ?? "",
+            mtime: entry.LastModified?.getTime() ?? 0,
+            sha256: entry.ETag?.replace(/"/g, "") ?? "",
+            size: entry.Size ?? 0
+          };
+        }
+        continuationToken = response.IsTruncated ? response.NextContinuationToken : void 0;
+      } while (continuationToken);
+      return files;
+    } catch (error) {
+      throw describeError("Remote list", error, prefix || this.settings.bucketName);
     }
   }
   async putManifest(manifest) {
@@ -29597,6 +29647,7 @@ var ThreeWayDiffer = class {
     const localExists = Boolean(local);
     const lastSyncExists = Boolean(lastSync);
     const remoteExists = Boolean(remote && !remote.deleted);
+    const remoteDeleted = Boolean(remote?.deleted);
     if (localExists && !lastSyncExists && !remoteExists) {
       return { type: "upload", path };
     }
@@ -29615,8 +29666,11 @@ var ThreeWayDiffer = class {
     }
     if (localExists && lastSyncExists && !remoteExists) {
       const lastHash = lastSync?.sha256 ?? "";
-      if (local?.sha256 === lastHash) {
+      if (remoteDeleted && local?.sha256 === lastHash) {
         return { type: "delete-local", path };
+      }
+      if (!remoteDeleted && local?.sha256 === lastHash) {
+        return { type: "noop", path };
       }
       return { type: "conflict", path, localMtime: local?.mtime, remoteMtime: 0 };
     }
@@ -29785,7 +29839,8 @@ var SyncOrchestrator = class {
         operation: "manifest"
       });
       const remoteResult = await this.deps.remote.getManifest();
-      const remote = new Map(Object.entries(remoteResult.manifest.files));
+      const remoteListing = await this.loadRemoteListing();
+      const remote = new Map(Object.entries(this.mergeRemoteFiles(remoteResult.manifest.files, remoteListing)));
       this.deps.logger.log({
         level: "info",
         message: `Remote manifest loaded: ${remote.size} item(s), etag=${remoteResult.etag || "none"}`,
@@ -29984,6 +30039,44 @@ var SyncOrchestrator = class {
       vault_name: this.deps.vault.getVaultName(),
       version: "1"
     };
+  }
+  async loadRemoteListing() {
+    try {
+      const files = await this.deps.remote.listFiles();
+      this.deps.logger.log({
+        level: "info",
+        message: `Remote bucket listing loaded: ${Object.keys(files).length} object(s)`,
+        operation: "manifest"
+      });
+      return files;
+    } catch (error) {
+      this.deps.logger.log({
+        level: "warning",
+        message: `Remote bucket listing unavailable, continuing with manifest only: ${error instanceof Error ? error.message : String(error)}`,
+        operation: "manifest"
+      });
+      return {};
+    }
+  }
+  mergeRemoteFiles(manifestFiles, listedFiles) {
+    const merged = {};
+    for (const [path, file] of Object.entries(manifestFiles)) {
+      if (file.deleted) {
+        merged[path] = { ...file };
+      }
+    }
+    for (const [path, listed] of Object.entries(listedFiles)) {
+      const manifestFile = manifestFiles[path];
+      merged[path] = manifestFile ? {
+        ...listed,
+        ...manifestFile,
+        deleted: false,
+        etag: listed.etag || manifestFile.etag,
+        mtime: listed.mtime || manifestFile.mtime,
+        size: listed.size || manifestFile.size
+      } : { ...listed, deleted: false };
+    }
+    return merged;
   }
   async uploadPath(path, local, manifestFiles) {
     const localState = local.get(path);

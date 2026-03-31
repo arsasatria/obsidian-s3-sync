@@ -6,6 +6,10 @@ function encodePathSegment(segment: string): string {
   return encodeURIComponent(segment);
 }
 
+function decodePathSegment(segment: string): string {
+  return decodeURIComponent(segment);
+}
+
 export function encodeRemotePath(path: string): string {
   return normalizePathSlashes(path)
     .split("/")
@@ -21,6 +25,20 @@ export function joinRemoteKey(prefix: string, path: string): string {
     return normalizedPath;
   }
   return `${safePrefix}${normalizedPath}`.replace(/\/{2,}/g, "/");
+}
+
+export function remoteKeyToPath(prefix: string, key: string): string | null {
+  const normalizedKey = normalizePathSlashes(key);
+  const normalizedPrefix = prefix ? `${encodeRemotePath(prefix).replace(/\/+$/, "")}/` : "";
+  if (normalizedPrefix && !normalizedKey.startsWith(normalizedPrefix)) {
+    return null;
+  }
+  const relativeKey = normalizedPrefix ? normalizedKey.slice(normalizedPrefix.length) : normalizedKey;
+  return relativeKey
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map(decodePathSegment)
+    .join("/");
 }
 
 export function manifestKey(prefix: string): string {

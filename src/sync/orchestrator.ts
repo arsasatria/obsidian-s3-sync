@@ -66,7 +66,8 @@ export class SyncOrchestrator {
         operation: "manifest",
       });
       const remoteResult = await this.deps.remote.getManifest();
-      const remote = new Map(Object.entries(remoteResult.manifest.files));
+      const remoteListing = await this.loadRemoteListing();
+      const remote = new Map(Object.entries(this.mergeRemoteFiles(remoteResult.manifest.files, remoteListing)));
       this.deps.logger.log({
         level: "info",
         message: `Remote manifest loaded: ${remote.size} item(s), etag=${remoteResult.etag || "none"}`,
@@ -283,6 +284,51 @@ export class SyncOrchestrator {
       vault_name: this.deps.vault.getVaultName(),
       version: "1",
     };
+  }
+
+  private async loadRemoteListing(): Promise<Record<string, FileEntry>> {
+    try {
+      const files = await this.deps.remote.listFiles();
+      this.deps.logger.log({
+        level: "info",
+        message: `Remote bucket listing loaded: ${Object.keys(files).length} object(s)`,
+        operation: "manifest",
+      });
+      return files;
+    } catch (error) {
+      this.deps.logger.log({
+        level: "warning",
+        message: `Remote bucket listing unavailable, continuing with manifest only: ${error instanceof Error ? error.message : String(error)}`,
+        operation: "manifest",
+      });
+      return {};
+    }
+  }
+
+  private mergeRemoteFiles(manifestFiles: Record<string, FileEntry>, listedFiles: Record<string, FileEntry>): Record<string, FileEntry> {
+    const merged: Record<string, FileEntry> = {};
+
+    for (const [path, file] of Object.entries(manifestFiles)) {
+      if (file.deleted) {
+        merged[path] = { ...file };
+      }
+    }
+
+    for (const [path, listed] of Object.entries(listedFiles)) {
+      const manifestFile = manifestFiles[path];
+      merged[path] = manifestFile
+        ? {
+            ...listed,
+            ...manifestFile,
+            deleted: false,
+            etag: listed.etag || manifestFile.etag,
+            mtime: listed.mtime || manifestFile.mtime,
+            size: listed.size || manifestFile.size,
+          }
+        : { ...listed, deleted: false };
+    }
+
+    return merged;
   }
 
   private async uploadPath(

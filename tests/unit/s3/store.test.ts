@@ -72,6 +72,38 @@ describe("AwsRemoteStore", () => {
     expect(result.manifest.vault_name).toBe("v");
   });
 
+  it("lists remote files from object storage", async () => {
+    send.mockResolvedValueOnce({
+      Contents: [
+        {
+          ETag: '"etag-a"',
+          Key: "vault-a/Notes/a.md",
+          LastModified: new Date(1000),
+          Size: 5,
+        },
+        {
+          ETag: '"etag-manifest"',
+          Key: "vault-a/.s3sync/manifest.json",
+          LastModified: new Date(1000),
+          Size: 10,
+        },
+      ],
+      IsTruncated: false,
+    });
+
+    const result = await store.listFiles();
+
+    expect(result).toEqual({
+      "Notes/a.md": {
+        deleted: false,
+        etag: "etag-a",
+        mtime: 1000,
+        sha256: "etag-a",
+        size: 5,
+      },
+    });
+  });
+
   it("writes a manifest", async () => {
     send.mockResolvedValueOnce({ ETag: '"etag-2"' });
     const etag = await store.putManifest({

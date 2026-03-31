@@ -20,6 +20,7 @@ export class ThreeWayDiffer {
     const localExists = Boolean(local);
     const lastSyncExists = Boolean(lastSync);
     const remoteExists = Boolean(remote && !remote.deleted);
+    const remoteDeleted = Boolean(remote?.deleted);
 
     if (localExists && !lastSyncExists && !remoteExists) {
       return { type: "upload", path };
@@ -43,8 +44,11 @@ export class ThreeWayDiffer {
 
     if (localExists && lastSyncExists && !remoteExists) {
       const lastHash = lastSync?.sha256 ?? "";
-      if (local?.sha256 === lastHash) {
+      if (remoteDeleted && local?.sha256 === lastHash) {
         return { type: "delete-local", path };
+      }
+      if (!remoteDeleted && local?.sha256 === lastHash) {
+        return { type: "noop", path };
       }
       return { type: "conflict", path, localMtime: local?.mtime, remoteMtime: 0 };
     }

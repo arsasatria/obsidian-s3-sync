@@ -1,4 +1,5 @@
 import type { LastSyncState, LocalFileState, RemoteManifest } from "../types/manifest";
+import type { FileEntry } from "../types/manifest";
 import type { SyncLogEntry } from "../types/settings";
 
 export interface VaultFileRecord {
@@ -30,6 +31,7 @@ export interface S3ObjectRecord {
 
 export interface RemoteStore {
   getManifest(): Promise<{ manifest: RemoteManifest; etag: string }>;
+  listFiles(): Promise<Record<string, FileEntry>>;
   putManifest(manifest: RemoteManifest): Promise<string>;
   uploadObject(path: string, body: ArrayBuffer, mtime: number): Promise<{ etag: string }>;
   downloadObject(path: string): Promise<S3ObjectRecord>;

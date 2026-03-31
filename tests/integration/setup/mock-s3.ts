@@ -37,6 +37,20 @@ export class MockS3 implements RemoteStore {
     };
   }
 
+  async listFiles(): Promise<Record<string, FileEntry>> {
+    const output: Record<string, FileEntry> = {};
+    for (const [path, body] of this.objects.entries()) {
+      output[path] = {
+        deleted: false,
+        etag: await sha256(body),
+        mtime: Date.now(),
+        sha256: await sha256(body),
+        size: body.byteLength,
+      };
+    }
+    return output;
+  }
+
   async putManifest(manifest: RemoteManifest): Promise<string> {
     this.manifest = structuredClone(manifest);
     this.manifestEtag = `${Date.now()}`;

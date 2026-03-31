@@ -52,6 +52,15 @@ describe("ThreeWayDiffer", () => {
     expect(result).toEqual([{ path: "a.md", type: "delete-local" }]);
   });
 
+  it("keeps the local file when the remote entry disappears without an explicit tombstone", () => {
+    const result = differ.diff(
+      new Map([["a.md", localFile("hash1")]]),
+      new Map([["a.md", remoteFile("hash1")]]),
+      new Map(),
+    );
+    expect(result).toEqual([{ path: "a.md", type: "noop" }]);
+  });
+
   it("detects conflict when both local and remote changed differently", () => {
     const result = differ.diff(
       new Map([["a.md", localFile("local", 2000)]]),

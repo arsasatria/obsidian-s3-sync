@@ -14,9 +14,10 @@ import { SignatureV4 } from "@smithy/signature-v4";
 import type { HttpRequest as SmithyHttpRequest } from "@smithy/types";
 import { Platform, requestUrl } from "obsidian";
 import type { RemoteManifest } from "../types/manifest";
+import type { FileEntry } from "../types/manifest";
 import type { PluginSettings } from "../types/settings";
 import type { RemoteStore, S3ObjectRecord } from "../core/interfaces";
-import { manifestKey, joinRemoteKey, normalizePathSlashes } from "../utils/path";
+import { manifestKey, joinRemoteKey, normalizePathSlashes, remoteKeyToPath } from "../utils/path";
 
 function describeError(action: string, error: unknown, path?: string): Error {
   const message = error instanceof Error ? error.message : String(error);
@@ -281,6 +282,49 @@ export class AwsRemoteStore implements RemoteStore {
         return emptyManifest();
       }
       throw describeError("Remote manifest fetch", error, key);
+    }
+  }
+
+  async listFiles(): Promise<Record<string, FileEntry>> {
+    const files: Record<string, FileEntry> = {};
+    const prefix = this.settings.prefix ? `${joinRemoteKey(this.settings.prefix, "").replace(/\/+$/, "")}/` : "";
+    const manifest = manifestKey(this.settings.prefix);
+    let continuationToken: string | undefined;
+
+    try {
+      do {
+        const response = await this.client.send(
+          new ListObjectsV2Command({
+            Bucket: this.settings.bucketName,
+            ContinuationToken: continuationToken,
+            Prefix: prefix || undefined,
+          }),
+        );
+
+        for (const entry of response.Contents ?? []) {
+          const key = entry.Key;
+          if (!key || key === manifest) {
+            continue;
+          }
+          const path = remoteKeyToPath(this.settings.prefix, key);
+          if (!path || path.startsWith(".s3sync/")) {
+            continue;
+          }
+          files[path] = {
+            deleted: false,
+            etag: entry.ETag?.replace(/"/g, "") ?? "",
+            mtime: entry.LastModified?.getTime() ?? 0,
+            sha256: entry.ETag?.replace(/"/g, "") ?? "",
+            size: entry.Size ?? 0,
+          };
+        }
+
+        continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+      } while (continuationToken);
+
+      return files;
+    } catch (error) {
+      throw describeError("Remote list", error, prefix || this.settings.bucketName);
     }
   }
 
