@@ -5,7 +5,7 @@ An Obsidian plugin for synchronizing vaults with `S3-compatible` object storage 
 This plugin is designed for cross-device collaboration with a focus on:
 
 - reliable bidirectional synchronization
-- three-way diff–based change detection
+- three-way diff-based change detection
 - safe conflict handling
 - clear operational visibility through logs, monitoring, and dry runs
 

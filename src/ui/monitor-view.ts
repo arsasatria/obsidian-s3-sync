@@ -32,7 +32,7 @@ export class SyncMonitorView extends ItemView {
     const hero = contentEl.createDiv({ cls: "s3-sync-panel-hero" });
     hero.createEl("h2", { text: "Live Sync Monitor" });
     hero.createEl("p", {
-      text: "Monitor sync status, review recent activity, and trigger manual actions.",
+      text: "Check sync status, review recent activity, and run manual actions.",
     });
 
     const statGrid = contentEl.createDiv({ cls: "s3-sync-stat-grid" });
@@ -43,7 +43,7 @@ export class SyncMonitorView extends ItemView {
     );
     this.createStatCard(
       statGrid,
-      "Remote polling",
+      "Background checks",
       settings.remotePollingEnabled ? `Every ${settings.remotePollingIntervalSec}s` : "Off",
     );
     this.createStatCard(

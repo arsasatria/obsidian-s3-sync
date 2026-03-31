@@ -18,29 +18,29 @@ export class S3SyncSettingTab extends PluginSettingTab {
     const hero = containerEl.createDiv({ cls: "s3-sync-settings-hero" });
     hero.createEl("h2", { text: "S3 Sync" });
     hero.createEl("p", {
-      text: "Configure connection, choose how synchronization behaves, and access manual actions from one place.",
+      text: "Connect your storage, choose how sync should behave, and run manual actions from one place.",
     });
     hero.createEl("div", {
       cls: "s3-sync-settings-preset-badge",
       text: `Current profile: ${this.detectPreset(settings)}`,
     });
 
-    const quickSection = this.createSection(containerEl, "Quick Actions", "Use these actions for day-to-day operation.");
+    const quickSection = this.createSection(containerEl, "Quick Actions", "Use these buttons for everyday sync tasks.");
     new Setting(quickSection)
-      .setName("Manual actions")
-      .setDesc("Run a one-off push, fetch, or full sync.")
+      .setName("Sync now")
+      .setDesc("Run a one-time push, fetch, or full sync.")
       .addButton((button) => button.setButtonText("Push").onClick(async () => this.plugin.runPush()))
       .addButton((button) => button.setButtonText("Fetch").onClick(async () => this.plugin.runPull()))
       .addButton((button) => button.setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync()));
 
     new Setting(quickSection)
-      .setName("Utilities")
-      .setDesc("Open the live monitor or sync log, or validate your connection.")
+      .setName("Open tools")
+      .setDesc("Open the monitor, open the log, or verify the connection.")
       .addButton((button) => button.setButtonText("Test connection").onClick(async () => this.plugin.testConnection()))
       .addButton((button) => button.setButtonText("Monitor").onClick(async () => this.plugin.openMonitorView()))
       .addButton((button) => button.setButtonText("Log").onClick(async () => this.plugin.openLogView()));
 
-    const presetSection = this.createSection(containerEl, "Profiles", "Apply a ready-made sync profile and adjust details only if needed.");
+    const presetSection = this.createSection(containerEl, "Profiles", "Choose a ready-made profile, then fine-tune only if necessary.");
     const presetGrid = presetSection.createDiv({ cls: "s3-sync-preset-grid" });
     this.createPresetCard(
       presetGrid,
@@ -73,58 +73,58 @@ export class S3SyncSettingTab extends PluginSettingTab {
       },
     );
 
-    const essentials = this.createSection(containerEl, "Connection", "Only the required connection details are shown here.");
-    new Setting(essentials).setName("Endpoint URL").addText((text) =>
+    const essentials = this.createSection(containerEl, "Connection", "Only the essentials are shown here.");
+    new Setting(essentials).setName("Server URL").addText((text) =>
       text.setValue(settings.endpoint).onChange(async (value) => {
         settings.endpoint = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(essentials).setName("Bucket name").addText((text) =>
+    new Setting(essentials).setName("Bucket").addText((text) =>
       text.setValue(settings.bucketName).onChange(async (value) => {
         settings.bucketName = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(essentials).setName("Access key ID").addText((text) =>
+    new Setting(essentials).setName("Access key").addText((text) =>
       text.setValue(settings.accessKeyId).onChange(async (value) => {
         settings.accessKeyId = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(essentials).setName("Secret access key").addText((text) =>
+    new Setting(essentials).setName("Secret key").addText((text) =>
       text.setPlaceholder("Hidden").setValue(settings.secretAccessKey).onChange(async (value) => {
         settings.secretAccessKey = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(essentials).setName("Force path style").setDesc("Enable this for MinIO and many self-hosted S3 services.").addToggle((toggle) =>
+    new Setting(essentials).setName("MinIO-style paths").setDesc("Turn this on for MinIO and many self-hosted S3 services.").addToggle((toggle) =>
       toggle.setValue(settings.forcePathStyle).onChange(async (value) => {
         settings.forcePathStyle = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    const behavior = this.createSection(containerEl, "Sync Behavior", "Recommended settings for normal use.");
-    new Setting(behavior).setName("Sync on save").addToggle((toggle) =>
+    const behavior = this.createSection(containerEl, "Sync Behavior", "These are the settings most users will care about.");
+    new Setting(behavior).setName("Sync after save").addToggle((toggle) =>
       toggle.setValue(settings.syncOnSave).onChange(async (value) => {
         settings.syncOnSave = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(behavior).setName("Sync on startup").addToggle((toggle) =>
+    new Setting(behavior).setName("Sync when Obsidian starts").addToggle((toggle) =>
       toggle.setValue(settings.syncOnStartup).onChange(async (value) => {
         settings.syncOnStartup = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(behavior).setName("Realtime remote polling").setDesc("Continuously check S3 for remote changes.").addToggle((toggle) =>
+    new Setting(behavior).setName("Check for remote changes").setDesc("Keep checking S3 in the background for updates from other devices.").addToggle((toggle) =>
       toggle.setValue(settings.remotePollingEnabled).onChange(async (value) => {
         settings.remotePollingEnabled = value;
         await this.plugin.saveSettings();
@@ -132,7 +132,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(behavior).setName("Polling interval").setDesc("Recommended range: 5 to 15 seconds.").addText((text) =>
+    new Setting(behavior).setName("Background check interval").setDesc("Recommended range: 5 to 15 seconds.").addText((text) =>
       text.setValue(String(settings.remotePollingIntervalSec)).onChange(async (value) => {
         const nextValue = Number.parseInt(value.trim() || "10", 10);
         settings.remotePollingIntervalSec = Number.isFinite(nextValue) ? Math.max(3, nextValue) : 10;
@@ -141,7 +141,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(behavior).setName("Conflict rule").setDesc("Choose how the plugin handles competing local and remote edits.").addDropdown((dropdown) => {
+    new Setting(behavior).setName("When both sides changed").setDesc("Choose what happens when local and remote edits do not match.").addDropdown((dropdown) => {
       const choices: ConflictRule[] = ["keep-local", "keep-remote", "keep-both", "ask-user"];
       choices.forEach((choice) => dropdown.addOption(choice, choice));
       dropdown.setValue(settings.defaultConflictRule).onChange(async (value) => {
@@ -160,28 +160,28 @@ export class S3SyncSettingTab extends PluginSettingTab {
       text: "Less frequently used options are grouped here to keep the main setup simple.",
     });
 
-    new Setting(advanced).setName("Region").setDesc("Optional. Leave blank for many S3-compatible providers.").addText((text) =>
+    new Setting(advanced).setName("Region").setDesc("Optional. This can usually be left blank for S3-compatible providers.").addText((text) =>
       text.setPlaceholder("Optional, defaults to auto").setValue(settings.region).onChange(async (value) => {
         settings.region = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Session token").addText((text) =>
+    new Setting(advanced).setName("Session token").setDesc("Only needed for temporary credentials.").addText((text) =>
       text.setValue(settings.sessionToken).onChange(async (value) => {
         settings.sessionToken = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Prefix").setDesc("Optional bucket prefix for multi-vault sync.").addText((text) =>
+    new Setting(advanced).setName("Bucket subfolder").setDesc("Optional prefix if you want this vault to sync into a subfolder inside the bucket.").addText((text) =>
       text.setValue(settings.prefix).onChange(async (value) => {
         settings.prefix = value.trim();
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Mobile safe mode").setDesc("Use more conservative defaults on Android and iOS to reduce runtime-specific sync failures.").addToggle((toggle) =>
+    new Setting(advanced).setName("Extra-safe mode for phones and tablets").setDesc("Uses more conservative behavior on Android, iPhone, and iPad to reduce runtime-specific failures.").addToggle((toggle) =>
       toggle.setValue(settings.mobileSafeMode).onChange(async (value) => {
         settings.mobileSafeMode = value;
         await this.plugin.saveSettings();
@@ -189,14 +189,14 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(advanced).setName("Sync .obsidian folder").addToggle((toggle) =>
+    new Setting(advanced).setName("Sync Obsidian settings too").setDesc("Include the `.obsidian` folder so app settings can travel between devices.").addToggle((toggle) =>
       toggle.setValue(settings.syncConfigFolder).onChange(async (value) => {
         settings.syncConfigFolder = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Scheduled sync").addDropdown((dropdown) => {
+    new Setting(advanced).setName("Scheduled sync").setDesc("Run a full sync automatically on a repeating schedule.").addDropdown((dropdown) => {
       const choices: ScheduleInterval[] = ["manual", "5m", "15m", "30m", "1h"];
       choices.forEach((choice) => dropdown.addOption(choice, choice));
       dropdown.setValue(settings.scheduledSyncInterval).onChange(async (value) => {
@@ -206,7 +206,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
       });
     });
 
-    new Setting(advanced).setName("Fetch on focus").setDesc("Pull remote changes whenever Obsidian regains focus.").addToggle((toggle) =>
+    new Setting(advanced).setName("Check when returning to Obsidian").setDesc("Fetch remote changes when Obsidian becomes active again.").addToggle((toggle) =>
       toggle.setValue(settings.syncOnWindowFocus).onChange(async (value) => {
         settings.syncOnWindowFocus = value;
         await this.plugin.saveSettings();
@@ -214,14 +214,14 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(advanced).setName("Create safety snapshots").setDesc("Keep local safety copies before overwrite or delete.").addToggle((toggle) =>
+    new Setting(advanced).setName("Keep safety copies").setDesc("Create local backup copies before overwrite or delete actions.").addToggle((toggle) =>
       toggle.setValue(settings.createSafetySnapshots).onChange(async (value) => {
         settings.createSafetySnapshots = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Safety snapshots per file").setDesc("Older safety snapshots are pruned automatically.").addText((text) =>
+    new Setting(advanced).setName("Safety copies per file").setDesc("Older safety copies are cleaned up automatically.").addText((text) =>
       text.setValue(String(settings.maxSafetySnapshotsPerFile)).onChange(async (value) => {
         const nextValue = Number.parseInt(value.trim() || "3", 10);
         settings.maxSafetySnapshotsPerFile = Number.isFinite(nextValue) ? Math.max(1, nextValue) : 3;
@@ -229,14 +229,14 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(advanced).setName("Smart text compression").setDesc("Store compressible text files in S3 as gzip when it materially saves space.").addToggle((toggle) =>
+    new Setting(advanced).setName("Save space for text files").setDesc("Compress text files before upload when it meaningfully reduces storage usage.").addToggle((toggle) =>
       toggle.setValue(settings.smartTextCompression).onChange(async (value) => {
         settings.smartTextCompression = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Compression minimum savings (%)").setDesc("Only compress when the space savings are worthwhile.").addText((text) =>
+    new Setting(advanced).setName("Minimum space savings (%)").setDesc("Only compress when the storage savings are worthwhile.").addText((text) =>
       text.setValue(String(settings.compressionMinSavingsPercent)).onChange(async (value) => {
         const nextValue = Number.parseInt(value.trim() || "10", 10);
         settings.compressionMinSavingsPercent = Number.isFinite(nextValue) ? Math.max(0, Math.min(90, nextValue)) : 10;
@@ -244,7 +244,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(advanced).setName("Exclude patterns").setDesc("One glob pattern per line.").addTextArea((text) =>
+    new Setting(advanced).setName("Ignore these paths").setDesc("One glob pattern per line. Matching files will not be synced.").addTextArea((text) =>
       text.setValue(settings.excludePatterns.join("\n")).onChange(async (value) => {
         settings.excludePatterns = value
           .split("\n")
@@ -254,7 +254,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(advanced).setName("Desktop notifications").addToggle((toggle) =>
+    new Setting(advanced).setName("Show notifications").setDesc("Display success and error messages as notices.").addToggle((toggle) =>
       toggle.setValue(settings.notifyOnSuccess || settings.notifyOnError).onChange(async (value) => {
         settings.notifyOnSuccess = value;
         settings.notifyOnError = value;
@@ -262,14 +262,14 @@ export class S3SyncSettingTab extends PluginSettingTab {
       }),
     );
 
-    new Setting(advanced).setName("Debug logging").setDesc("Store low-level scan, queue, and manifest activity in the sync log.").addToggle((toggle) =>
+    new Setting(advanced).setName("Verbose logging").setDesc("Store extra low-level scan, queue, and manifest activity in the sync log.").addToggle((toggle) =>
       toggle.setValue(settings.debugLogging).onChange(async (value) => {
         settings.debugLogging = value;
         await this.plugin.saveSettings();
       }),
     );
 
-    new Setting(advanced).setName("Safe boot mode").setDesc("If background sync fails repeatedly during startup, focus, or polling, pause automation temporarily so the UI remains usable.").addToggle((toggle) =>
+    new Setting(advanced).setName("Automatic recovery mode").setDesc("If background sync fails repeatedly, temporarily pause automation so the app stays usable.").addToggle((toggle) =>
       toggle.setValue(settings.safeBootEnabled).onChange(async (value) => {
         settings.safeBootEnabled = value;
         if (!value) {
@@ -287,7 +287,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
       ? `Background sync paused until ${new Date(settings.safeBootUntil).toLocaleString()}`
       : "No active safe boot pause";
     new Setting(advanced)
-      .setName("Safe boot status")
+      .setName("Automatic recovery status")
       .setDesc(safeBootDesc)
       .addButton((button) =>
         button.setButtonText("Reset").onClick(async () => {
@@ -319,7 +319,7 @@ export class S3SyncSettingTab extends PluginSettingTab {
     card.createEl("div", { cls: "s3-sync-preset-description", text: description });
     new Setting(card)
       .setName(active ? "Active profile" : "Apply profile")
-      .setDesc(active ? "This profile currently matches your sync behavior." : "Replace the current behavior settings with this profile.")
+      .setDesc(active ? "This profile currently matches your sync behavior." : "Replace the current sync behavior settings with this profile.")
       .addButton((button) =>
         button
           .setButtonText(active ? "Applied" : "Apply")
