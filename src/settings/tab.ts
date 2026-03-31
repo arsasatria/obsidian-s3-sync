@@ -2,6 +2,8 @@ import { PluginSettingTab, Setting } from "obsidian";
 import type ObsidianS3SyncPlugin from "../main";
 import type { ConflictRule, ScheduleInterval } from "../types/settings";
 
+type SyncPreset = "safe" | "balanced" | "aggressive";
+
 export class S3SyncSettingTab extends PluginSettingTab {
   constructor(private readonly plugin: ObsidianS3SyncPlugin) {
     super(plugin.app, plugin);
@@ -18,6 +20,10 @@ export class S3SyncSettingTab extends PluginSettingTab {
     hero.createEl("p", {
       text: "Configure connection, choose how synchronization behaves, and access manual actions from one place.",
     });
+    hero.createEl("div", {
+      cls: "s3-sync-settings-preset-badge",
+      text: `Current profile: ${this.detectPreset(settings)}`,
+    });
 
     const quickSection = this.createSection(containerEl, "Quick Actions", "Use these actions for day-to-day operation.");
     new Setting(quickSection)
@@ -33,6 +39,39 @@ export class S3SyncSettingTab extends PluginSettingTab {
       .addButton((button) => button.setButtonText("Test connection").onClick(async () => this.plugin.testConnection()))
       .addButton((button) => button.setButtonText("Monitor").onClick(async () => this.plugin.openMonitorView()))
       .addButton((button) => button.setButtonText("Log").onClick(async () => this.plugin.openLogView()));
+
+    const presetSection = this.createSection(containerEl, "Profiles", "Apply a ready-made sync profile and adjust details only if needed.");
+    const presetGrid = presetSection.createDiv({ cls: "s3-sync-preset-grid" });
+    this.createPresetCard(
+      presetGrid,
+      "Safe",
+      "Conservative settings that prioritize stability and avoid aggressive background activity.",
+      this.detectPreset(settings) === "safe",
+      async () => {
+        await this.applyPreset("safe");
+        this.display();
+      },
+    );
+    this.createPresetCard(
+      presetGrid,
+      "Balanced",
+      "Recommended defaults for most users. Good reliability without excessive background churn.",
+      this.detectPreset(settings) === "balanced",
+      async () => {
+        await this.applyPreset("balanced");
+        this.display();
+      },
+    );
+    this.createPresetCard(
+      presetGrid,
+      "Aggressive",
+      "Faster remote awareness for users who prefer near-realtime behavior and accept more background activity.",
+      this.detectPreset(settings) === "aggressive",
+      async () => {
+        await this.applyPreset("aggressive");
+        this.display();
+      },
+    );
 
     const essentials = this.createSection(containerEl, "Connection", "Only the required connection details are shown here.");
     new Setting(essentials).setName("Endpoint URL").addText((text) =>
@@ -266,5 +305,122 @@ export class S3SyncSettingTab extends PluginSettingTab {
       text: description,
     });
     return section;
+  }
+
+  private createPresetCard(
+    containerEl: HTMLElement,
+    title: string,
+    description: string,
+    active: boolean,
+    onApply: () => Promise<void>,
+  ): void {
+    const card = containerEl.createDiv({ cls: `s3-sync-preset-card${active ? " is-active" : ""}` });
+    card.createEl("div", { cls: "s3-sync-preset-title", text: title });
+    card.createEl("div", { cls: "s3-sync-preset-description", text: description });
+    new Setting(card)
+      .setName(active ? "Active profile" : "Apply profile")
+      .setDesc(active ? "This profile currently matches your sync behavior." : "Replace the current behavior settings with this profile.")
+      .addButton((button) =>
+        button
+          .setButtonText(active ? "Applied" : "Apply")
+          .setDisabled(active)
+          .onClick(async () => onApply()),
+      );
+  }
+
+  private detectPreset(settings: ObsidianS3SyncPlugin["settings"]): SyncPreset | "custom" {
+    if (
+      !settings.syncOnStartup &&
+      !settings.remotePollingEnabled &&
+      !settings.syncOnWindowFocus &&
+      settings.mobileSafeMode &&
+      settings.createSafetySnapshots &&
+      !settings.smartTextCompression &&
+      settings.scheduledSyncInterval === "manual"
+    ) {
+      return "safe";
+    }
+
+    if (
+      settings.syncOnSave &&
+      settings.syncOnStartup &&
+      settings.remotePollingEnabled &&
+      settings.remotePollingIntervalSec === 10 &&
+      settings.syncOnWindowFocus &&
+      settings.mobileSafeMode &&
+      settings.createSafetySnapshots &&
+      settings.smartTextCompression &&
+      settings.scheduledSyncInterval === "manual"
+    ) {
+      return "balanced";
+    }
+
+    if (
+      settings.syncOnSave &&
+      settings.syncOnStartup &&
+      settings.remotePollingEnabled &&
+      settings.remotePollingIntervalSec === 5 &&
+      settings.syncOnWindowFocus &&
+      settings.createSafetySnapshots &&
+      settings.smartTextCompression &&
+      settings.scheduledSyncInterval === "5m"
+    ) {
+      return "aggressive";
+    }
+
+    return "custom";
+  }
+
+  private async applyPreset(preset: SyncPreset): Promise<void> {
+    const settings = this.plugin.settings;
+    if (preset === "safe") {
+      settings.syncOnSave = true;
+      settings.syncOnStartup = false;
+      settings.remotePollingEnabled = false;
+      settings.remotePollingIntervalSec = 15;
+      settings.syncOnWindowFocus = false;
+      settings.mobileSafeMode = true;
+      settings.createSafetySnapshots = true;
+      settings.maxSafetySnapshotsPerFile = 3;
+      settings.smartTextCompression = false;
+      settings.scheduledSyncInterval = "manual";
+      settings.defaultConflictRule = "keep-both";
+      settings.safeBootEnabled = true;
+      settings.debugLogging = false;
+    } else if (preset === "balanced") {
+      settings.syncOnSave = true;
+      settings.syncOnStartup = true;
+      settings.remotePollingEnabled = true;
+      settings.remotePollingIntervalSec = 10;
+      settings.syncOnWindowFocus = true;
+      settings.mobileSafeMode = true;
+      settings.createSafetySnapshots = true;
+      settings.maxSafetySnapshotsPerFile = 3;
+      settings.smartTextCompression = true;
+      settings.scheduledSyncInterval = "manual";
+      settings.defaultConflictRule = "keep-both";
+      settings.safeBootEnabled = true;
+      settings.debugLogging = false;
+    } else {
+      settings.syncOnSave = true;
+      settings.syncOnStartup = true;
+      settings.remotePollingEnabled = true;
+      settings.remotePollingIntervalSec = 5;
+      settings.syncOnWindowFocus = true;
+      settings.mobileSafeMode = true;
+      settings.createSafetySnapshots = true;
+      settings.maxSafetySnapshotsPerFile = 2;
+      settings.smartTextCompression = true;
+      settings.scheduledSyncInterval = "5m";
+      settings.defaultConflictRule = "keep-both";
+      settings.safeBootEnabled = true;
+      settings.debugLogging = false;
+    }
+
+    settings.safeBootUntil = null;
+    settings.startupFailureCount = 0;
+    settings.startupFailureWindowStartedAt = null;
+    await this.plugin.saveSettings();
+    this.plugin.refreshSchedule();
   }
 }

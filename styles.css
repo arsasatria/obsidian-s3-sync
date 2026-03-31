@@ -37,6 +37,17 @@
   color: var(--text-muted);
 }
 
+.s3-sync-settings-preset-badge {
+  display: inline-flex;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--background-primary-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .s3-sync-settings-advanced summary {
   cursor: pointer;
   font-weight: 600;
@@ -51,6 +62,37 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.s3-sync-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.s3-sync-preset-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary-alt);
+  padding: 14px;
+}
+
+.s3-sync-preset-card.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+}
+
+.s3-sync-preset-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.s3-sync-preset-description {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 10px;
 }
 
 .s3-sync-stat-grid {
