@@ -27,24 +27,45 @@ export class SyncMonitorView extends ItemView {
     const { contentEl } = this;
     const settings = this.plugin.settings;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "Live Sync Monitor" });
-    contentEl.createEl("p", {
-      text: `Last successful sync: ${settings.lastSuccessfulSyncAt ? new Date(settings.lastSuccessfulSyncAt).toLocaleString() : "Never"}`,
-    });
-    contentEl.createEl("p", {
-      text: `Realtime polling: ${settings.remotePollingEnabled ? `On every ${settings.remotePollingIntervalSec}s` : "Off"}`,
-    });
-    contentEl.createEl("p", {
-      text: `Conflict rule: ${settings.defaultConflictRule} | Compression: ${settings.smartTextCompression ? "Smart gzip" : "Off"}`,
+    contentEl.addClass("s3-sync-panel");
+
+    const hero = contentEl.createDiv({ cls: "s3-sync-panel-hero" });
+    hero.createEl("h2", { text: "Live Sync Monitor" });
+    hero.createEl("p", {
+      text: "Monitor sync status, review recent activity, and trigger manual actions.",
     });
 
-    const actions = contentEl.createDiv({ cls: "modal-button-container" });
+    const statGrid = contentEl.createDiv({ cls: "s3-sync-stat-grid" });
+    this.createStatCard(
+      statGrid,
+      "Last successful sync",
+      settings.lastSuccessfulSyncAt ? new Date(settings.lastSuccessfulSyncAt).toLocaleString() : "Never",
+    );
+    this.createStatCard(
+      statGrid,
+      "Remote polling",
+      settings.remotePollingEnabled ? `Every ${settings.remotePollingIntervalSec}s` : "Off",
+    );
+    this.createStatCard(
+      statGrid,
+      "Conflict handling",
+      settings.defaultConflictRule,
+    );
+    this.createStatCard(
+      statGrid,
+      "Compression",
+      settings.smartTextCompression ? "Smart gzip" : "Off",
+    );
+
+    const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new ButtonComponent(actions).setButtonText("Push").onClick(async () => this.plugin.runPush());
     new ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.plugin.runPull());
     new ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync());
 
-    contentEl.createEl("h3", { text: "Recent Activity" });
-    const table = contentEl.createEl("table", { cls: "s3-sync-table" });
+    const tableCard = contentEl.createDiv({ cls: "s3-sync-table-card" });
+    tableCard.createEl("h3", { text: "Recent Activity" });
+    const tableWrap = tableCard.createDiv({ cls: "s3-sync-table-wrap" });
+    const table = tableWrap.createEl("table", { cls: "s3-sync-table" });
     const head = table.createTHead().insertRow();
     head.insertCell().outerHTML = "<th>Time</th>";
     head.insertCell().outerHTML = "<th>Operation</th>";
@@ -58,5 +79,11 @@ export class SyncMonitorView extends ItemView {
       row.insertCell().setText(entry.path ?? "-");
       row.insertCell().setText(entry.message);
     }
+  }
+
+  private createStatCard(container: HTMLElement, label: string, value: string): void {
+    const card = container.createDiv({ cls: "s3-sync-stat-card" });
+    card.createEl("div", { cls: "s3-sync-stat-label", text: label });
+    card.createEl("div", { cls: "s3-sync-stat-value", text: value });
   }
 }

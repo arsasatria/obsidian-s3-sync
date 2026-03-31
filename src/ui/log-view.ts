@@ -32,8 +32,15 @@ export class SyncLogView extends ItemView {
   render(): void {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "S3 Sync Log" });
-    const actions = contentEl.createDiv({ cls: "modal-button-container" });
+    contentEl.addClass("s3-sync-panel");
+
+    const hero = contentEl.createDiv({ cls: "s3-sync-panel-hero" });
+    hero.createEl("h2", { text: "S3 Sync Log" });
+    hero.createEl("p", {
+      text: "Review sync activity, failures, and manual operation history.",
+    });
+
+    const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new ButtonComponent(actions).setButtonText("Push").onClick(async () => this.actions.push());
     new ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.actions.pull());
     new ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.actions.sync());
@@ -42,7 +49,13 @@ export class SyncLogView extends ItemView {
       this.render();
     });
 
-    const table = contentEl.createEl("table", { cls: "s3-sync-table" });
+    const tableCard = contentEl.createDiv({ cls: "s3-sync-table-card" });
+    const summary = tableCard.createDiv({ cls: "s3-sync-log-summary" });
+    summary.createEl("div", { text: `${this.getSettings().logs.length} entries` });
+    summary.createEl("div", { text: "Newest entries appear first" });
+
+    const tableWrap = tableCard.createDiv({ cls: "s3-sync-table-wrap" });
+    const table = tableWrap.createEl("table", { cls: "s3-sync-table" });
     const head = table.createTHead().insertRow();
     head.insertCell().outerHTML = "<th>Time</th>";
     head.insertCell().outerHTML = "<th>Level</th>";

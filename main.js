@@ -30258,81 +30258,75 @@ var S3SyncSettingTab = class extends import_obsidian7.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.settings;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "S3 Sync Settings" });
-    new import_obsidian7.Setting(containerEl).setName("Endpoint URL").addText(
+    containerEl.addClass("s3-sync-settings");
+    const hero = containerEl.createDiv({ cls: "s3-sync-settings-hero" });
+    hero.createEl("h2", { text: "S3 Sync" });
+    hero.createEl("p", {
+      text: "Configure connection, choose how synchronization behaves, and access manual actions from one place."
+    });
+    const quickSection = this.createSection(containerEl, "Quick Actions", "Use these actions for day-to-day operation.");
+    new import_obsidian7.Setting(quickSection).setName("Manual actions").setDesc("Run a one-off push, fetch, or full sync.").addButton((button) => button.setButtonText("Push").onClick(async () => this.plugin.runPush())).addButton((button) => button.setButtonText("Fetch").onClick(async () => this.plugin.runPull())).addButton((button) => button.setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync()));
+    new import_obsidian7.Setting(quickSection).setName("Utilities").setDesc("Open the live monitor or sync log, or validate your connection.").addButton((button) => button.setButtonText("Test connection").onClick(async () => this.plugin.testConnection())).addButton((button) => button.setButtonText("Monitor").onClick(async () => this.plugin.openMonitorView())).addButton((button) => button.setButtonText("Log").onClick(async () => this.plugin.openLogView()));
+    const essentials = this.createSection(containerEl, "Connection", "Only the required connection details are shown here.");
+    new import_obsidian7.Setting(essentials).setName("Endpoint URL").addText(
       (text) => text.setValue(settings.endpoint).onChange(async (value) => {
         settings.endpoint = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Bucket name").addText(
+    new import_obsidian7.Setting(essentials).setName("Bucket name").addText(
       (text) => text.setValue(settings.bucketName).onChange(async (value) => {
         settings.bucketName = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Region").addText(
-      (text) => text.setPlaceholder("Optional, defaults to auto").setValue(settings.region).onChange(async (value) => {
-        settings.region = value.trim();
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Access key ID").addText(
+    new import_obsidian7.Setting(essentials).setName("Access key ID").addText(
       (text) => text.setValue(settings.accessKeyId).onChange(async (value) => {
         settings.accessKeyId = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Secret access key").addText(
+    new import_obsidian7.Setting(essentials).setName("Secret access key").addText(
       (text) => text.setPlaceholder("Hidden").setValue(settings.secretAccessKey).onChange(async (value) => {
         settings.secretAccessKey = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Session token").addText(
-      (text) => text.setValue(settings.sessionToken).onChange(async (value) => {
-        settings.sessionToken = value.trim();
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Prefix").setDesc("Optional bucket prefix for multi-vault sync").addText(
-      (text) => text.setValue(settings.prefix).onChange(async (value) => {
-        settings.prefix = value.trim();
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Force path style").setDesc("Required for MinIO and many self-hosted S3 services").addToggle(
+    new import_obsidian7.Setting(essentials).setName("Force path style").setDesc("Enable this for MinIO and many self-hosted S3 services.").addToggle(
       (toggle) => toggle.setValue(settings.forcePathStyle).onChange(async (value) => {
         settings.forcePathStyle = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Sync on save").addToggle(
+    const behavior = this.createSection(containerEl, "Sync Behavior", "Recommended settings for normal use.");
+    new import_obsidian7.Setting(behavior).setName("Sync on save").addToggle(
       (toggle) => toggle.setValue(settings.syncOnSave).onChange(async (value) => {
         settings.syncOnSave = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Mobile safe mode").setDesc("Use more conservative defaults on Android/iOS to reduce sync failures caused by mobile filesystem/runtime quirks").addToggle(
-      (toggle) => toggle.setValue(settings.mobileSafeMode).onChange(async (value) => {
-        settings.mobileSafeMode = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshSchedule();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Sync on startup").addToggle(
+    new import_obsidian7.Setting(behavior).setName("Sync on startup").addToggle(
       (toggle) => toggle.setValue(settings.syncOnStartup).onChange(async (value) => {
         settings.syncOnStartup = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Sync .obsidian folder").addToggle(
-      (toggle) => toggle.setValue(settings.syncConfigFolder).onChange(async (value) => {
-        settings.syncConfigFolder = value;
+    new import_obsidian7.Setting(behavior).setName("Realtime remote polling").setDesc("Continuously check S3 for remote changes.").addToggle(
+      (toggle) => toggle.setValue(settings.remotePollingEnabled).onChange(async (value) => {
+        settings.remotePollingEnabled = value;
         await this.plugin.saveSettings();
+        this.plugin.refreshSchedule();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Conflict rule").addDropdown((dropdown) => {
+    new import_obsidian7.Setting(behavior).setName("Polling interval").setDesc("Recommended range: 5 to 15 seconds.").addText(
+      (text) => text.setValue(String(settings.remotePollingIntervalSec)).onChange(async (value) => {
+        const nextValue = Number.parseInt(value.trim() || "10", 10);
+        settings.remotePollingIntervalSec = Number.isFinite(nextValue) ? Math.max(3, nextValue) : 10;
+        await this.plugin.saveSettings();
+        this.plugin.refreshSchedule();
+      })
+    );
+    new import_obsidian7.Setting(behavior).setName("Conflict rule").setDesc("Choose how the plugin handles competing local and remote edits.").addDropdown((dropdown) => {
       const choices = ["keep-local", "keep-remote", "keep-both", "ask-user"];
       choices.forEach((choice) => dropdown.addOption(choice, choice));
       dropdown.setValue(settings.defaultConflictRule).onChange(async (value) => {
@@ -30340,7 +30334,47 @@ var S3SyncSettingTab = class extends import_obsidian7.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Scheduled sync").addDropdown((dropdown) => {
+    const advanced = containerEl.createEl("details", { cls: "s3-sync-settings-advanced" });
+    if (settings.debugLogging || settings.safeBootUntil) {
+      advanced.open = true;
+    }
+    advanced.createEl("summary", { text: "Advanced Options" });
+    advanced.createEl("p", {
+      cls: "s3-sync-settings-advanced-note",
+      text: "Less frequently used options are grouped here to keep the main setup simple."
+    });
+    new import_obsidian7.Setting(advanced).setName("Region").setDesc("Optional. Leave blank for many S3-compatible providers.").addText(
+      (text) => text.setPlaceholder("Optional, defaults to auto").setValue(settings.region).onChange(async (value) => {
+        settings.region = value.trim();
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian7.Setting(advanced).setName("Session token").addText(
+      (text) => text.setValue(settings.sessionToken).onChange(async (value) => {
+        settings.sessionToken = value.trim();
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian7.Setting(advanced).setName("Prefix").setDesc("Optional bucket prefix for multi-vault sync.").addText(
+      (text) => text.setValue(settings.prefix).onChange(async (value) => {
+        settings.prefix = value.trim();
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian7.Setting(advanced).setName("Mobile safe mode").setDesc("Use more conservative defaults on Android and iOS to reduce runtime-specific sync failures.").addToggle(
+      (toggle) => toggle.setValue(settings.mobileSafeMode).onChange(async (value) => {
+        settings.mobileSafeMode = value;
+        await this.plugin.saveSettings();
+        this.plugin.refreshSchedule();
+      })
+    );
+    new import_obsidian7.Setting(advanced).setName("Sync .obsidian folder").addToggle(
+      (toggle) => toggle.setValue(settings.syncConfigFolder).onChange(async (value) => {
+        settings.syncConfigFolder = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian7.Setting(advanced).setName("Scheduled sync").addDropdown((dropdown) => {
       const choices = ["manual", "5m", "15m", "30m", "1h"];
       choices.forEach((choice) => dropdown.addOption(choice, choice));
       dropdown.setValue(settings.scheduledSyncInterval).onChange(async (value) => {
@@ -30349,74 +30383,59 @@ var S3SyncSettingTab = class extends import_obsidian7.PluginSettingTab {
         this.plugin.refreshSchedule();
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Near-realtime remote polling").setDesc("Continuously fetch remote changes on a short interval").addToggle(
-      (toggle) => toggle.setValue(settings.remotePollingEnabled).onChange(async (value) => {
-        settings.remotePollingEnabled = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshSchedule();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Remote polling interval (seconds)").setDesc("Recommended 5-15 seconds for aggressive collaboration").addText(
-      (text) => text.setValue(String(settings.remotePollingIntervalSec)).onChange(async (value) => {
-        const nextValue = Number.parseInt(value.trim() || "10", 10);
-        settings.remotePollingIntervalSec = Number.isFinite(nextValue) ? Math.max(3, nextValue) : 10;
-        await this.plugin.saveSettings();
-        this.plugin.refreshSchedule();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Fetch on focus").setDesc("Pull remote changes whenever Obsidian regains focus").addToggle(
+    new import_obsidian7.Setting(advanced).setName("Fetch on focus").setDesc("Pull remote changes whenever Obsidian regains focus.").addToggle(
       (toggle) => toggle.setValue(settings.syncOnWindowFocus).onChange(async (value) => {
         settings.syncOnWindowFocus = value;
         await this.plugin.saveSettings();
         this.plugin.refreshSchedule();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Create safety snapshots").setDesc("Keep local safety copies before overwrite or delete").addToggle(
+    new import_obsidian7.Setting(advanced).setName("Create safety snapshots").setDesc("Keep local safety copies before overwrite or delete.").addToggle(
       (toggle) => toggle.setValue(settings.createSafetySnapshots).onChange(async (value) => {
         settings.createSafetySnapshots = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Safety snapshots per file").setDesc("Old safety snapshots are pruned automatically").addText(
+    new import_obsidian7.Setting(advanced).setName("Safety snapshots per file").setDesc("Older safety snapshots are pruned automatically.").addText(
       (text) => text.setValue(String(settings.maxSafetySnapshotsPerFile)).onChange(async (value) => {
         const nextValue = Number.parseInt(value.trim() || "3", 10);
         settings.maxSafetySnapshotsPerFile = Number.isFinite(nextValue) ? Math.max(1, nextValue) : 3;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Smart text compression").setDesc("Store compressible text files in S3 as gzip when it meaningfully saves space").addToggle(
+    new import_obsidian7.Setting(advanced).setName("Smart text compression").setDesc("Store compressible text files in S3 as gzip when it materially saves space.").addToggle(
       (toggle) => toggle.setValue(settings.smartTextCompression).onChange(async (value) => {
         settings.smartTextCompression = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Compression minimum savings (%)").setDesc("Only compress when the space saving is worth it").addText(
+    new import_obsidian7.Setting(advanced).setName("Compression minimum savings (%)").setDesc("Only compress when the space savings are worthwhile.").addText(
       (text) => text.setValue(String(settings.compressionMinSavingsPercent)).onChange(async (value) => {
         const nextValue = Number.parseInt(value.trim() || "10", 10);
         settings.compressionMinSavingsPercent = Number.isFinite(nextValue) ? Math.max(0, Math.min(90, nextValue)) : 10;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Exclude patterns").setDesc("One glob pattern per line").addTextArea(
+    new import_obsidian7.Setting(advanced).setName("Exclude patterns").setDesc("One glob pattern per line.").addTextArea(
       (text) => text.setValue(settings.excludePatterns.join("\n")).onChange(async (value) => {
         settings.excludePatterns = value.split("\n").map((line) => line.trim()).filter(Boolean);
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Desktop notifications").addToggle(
+    new import_obsidian7.Setting(advanced).setName("Desktop notifications").addToggle(
       (toggle) => toggle.setValue(settings.notifyOnSuccess || settings.notifyOnError).onChange(async (value) => {
         settings.notifyOnSuccess = value;
         settings.notifyOnError = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Debug logging").setDesc("Store low-level scan, queue, and manifest activity in the sync log").addToggle(
+    new import_obsidian7.Setting(advanced).setName("Debug logging").setDesc("Store low-level scan, queue, and manifest activity in the sync log.").addToggle(
       (toggle) => toggle.setValue(settings.debugLogging).onChange(async (value) => {
         settings.debugLogging = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Safe boot mode").setDesc("If background sync fails repeatedly during startup/focus/polling, pause automation temporarily so the UI stays usable").addToggle(
+    new import_obsidian7.Setting(advanced).setName("Safe boot mode").setDesc("If background sync fails repeatedly during startup, focus, or polling, pause automation temporarily so the UI remains usable.").addToggle(
       (toggle) => toggle.setValue(settings.safeBootEnabled).onChange(async (value) => {
         settings.safeBootEnabled = value;
         if (!value) {
@@ -30430,20 +30449,21 @@ var S3SyncSettingTab = class extends import_obsidian7.PluginSettingTab {
       })
     );
     const safeBootDesc = settings.safeBootUntil ? `Background sync paused until ${new Date(settings.safeBootUntil).toLocaleString()}` : "No active safe boot pause";
-    new import_obsidian7.Setting(containerEl).setName("Safe boot status").setDesc(safeBootDesc).addButton(
+    new import_obsidian7.Setting(advanced).setName("Safe boot status").setDesc(safeBootDesc).addButton(
       (button) => button.setButtonText("Reset").onClick(async () => {
         await this.plugin.clearSafeBoot();
         this.display();
       })
     );
-    new import_obsidian7.Setting(containerEl).setName("Test connection").setDesc("Validate endpoint and credentials").addButton(
-      (button) => button.setButtonText("Run").setCta().onClick(async () => {
-        await this.plugin.testConnection();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Manual actions").setDesc("Quick access to push, fetch, and full sync").addButton((button) => button.setButtonText("Push").onClick(async () => this.plugin.runPush())).addButton((button) => button.setButtonText("Fetch").onClick(async () => this.plugin.runPull())).addButton((button) => button.setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync()));
-    new import_obsidian7.Setting(containerEl).setName("Open sync log").addButton((button) => button.setButtonText("Open").onClick(async () => this.plugin.openLogView()));
-    new import_obsidian7.Setting(containerEl).setName("Open live monitor").addButton((button) => button.setButtonText("Open").setCta().onClick(async () => this.plugin.openMonitorView()));
+  }
+  createSection(containerEl, title, description) {
+    const section = containerEl.createDiv({ cls: "s3-sync-settings-section" });
+    section.createEl("h3", { text: title });
+    section.createEl("p", {
+      cls: "s3-sync-settings-section-note",
+      text: description
+    });
+    return section;
   }
 };
 
@@ -30559,8 +30579,13 @@ var SyncLogView = class extends import_obsidian10.ItemView {
   render() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "S3 Sync Log" });
-    const actions = contentEl.createDiv({ cls: "modal-button-container" });
+    contentEl.addClass("s3-sync-panel");
+    const hero = contentEl.createDiv({ cls: "s3-sync-panel-hero" });
+    hero.createEl("h2", { text: "S3 Sync Log" });
+    hero.createEl("p", {
+      text: "Review sync activity, failures, and manual operation history."
+    });
+    const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new import_obsidian10.ButtonComponent(actions).setButtonText("Push").onClick(async () => this.actions.push());
     new import_obsidian10.ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.actions.pull());
     new import_obsidian10.ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.actions.sync());
@@ -30568,7 +30593,12 @@ var SyncLogView = class extends import_obsidian10.ItemView {
       this.clearLogs();
       this.render();
     });
-    const table = contentEl.createEl("table", { cls: "s3-sync-table" });
+    const tableCard = contentEl.createDiv({ cls: "s3-sync-table-card" });
+    const summary = tableCard.createDiv({ cls: "s3-sync-log-summary" });
+    summary.createEl("div", { text: `${this.getSettings().logs.length} entries` });
+    summary.createEl("div", { text: "Newest entries appear first" });
+    const tableWrap = tableCard.createDiv({ cls: "s3-sync-table-wrap" });
+    const table = tableWrap.createEl("table", { cls: "s3-sync-table" });
     const head = table.createTHead().insertRow();
     head.insertCell().outerHTML = "<th>Time</th>";
     head.insertCell().outerHTML = "<th>Level</th>";
@@ -30610,22 +30640,41 @@ var SyncMonitorView = class extends import_obsidian11.ItemView {
     const { contentEl } = this;
     const settings = this.plugin.settings;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "Live Sync Monitor" });
-    contentEl.createEl("p", {
-      text: `Last successful sync: ${settings.lastSuccessfulSyncAt ? new Date(settings.lastSuccessfulSyncAt).toLocaleString() : "Never"}`
+    contentEl.addClass("s3-sync-panel");
+    const hero = contentEl.createDiv({ cls: "s3-sync-panel-hero" });
+    hero.createEl("h2", { text: "Live Sync Monitor" });
+    hero.createEl("p", {
+      text: "Monitor sync status, review recent activity, and trigger manual actions."
     });
-    contentEl.createEl("p", {
-      text: `Realtime polling: ${settings.remotePollingEnabled ? `On every ${settings.remotePollingIntervalSec}s` : "Off"}`
-    });
-    contentEl.createEl("p", {
-      text: `Conflict rule: ${settings.defaultConflictRule} | Compression: ${settings.smartTextCompression ? "Smart gzip" : "Off"}`
-    });
-    const actions = contentEl.createDiv({ cls: "modal-button-container" });
+    const statGrid = contentEl.createDiv({ cls: "s3-sync-stat-grid" });
+    this.createStatCard(
+      statGrid,
+      "Last successful sync",
+      settings.lastSuccessfulSyncAt ? new Date(settings.lastSuccessfulSyncAt).toLocaleString() : "Never"
+    );
+    this.createStatCard(
+      statGrid,
+      "Remote polling",
+      settings.remotePollingEnabled ? `Every ${settings.remotePollingIntervalSec}s` : "Off"
+    );
+    this.createStatCard(
+      statGrid,
+      "Conflict handling",
+      settings.defaultConflictRule
+    );
+    this.createStatCard(
+      statGrid,
+      "Compression",
+      settings.smartTextCompression ? "Smart gzip" : "Off"
+    );
+    const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new import_obsidian11.ButtonComponent(actions).setButtonText("Push").onClick(async () => this.plugin.runPush());
     new import_obsidian11.ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.plugin.runPull());
     new import_obsidian11.ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync());
-    contentEl.createEl("h3", { text: "Recent Activity" });
-    const table = contentEl.createEl("table", { cls: "s3-sync-table" });
+    const tableCard = contentEl.createDiv({ cls: "s3-sync-table-card" });
+    tableCard.createEl("h3", { text: "Recent Activity" });
+    const tableWrap = tableCard.createDiv({ cls: "s3-sync-table-wrap" });
+    const table = tableWrap.createEl("table", { cls: "s3-sync-table" });
     const head = table.createTHead().insertRow();
     head.insertCell().outerHTML = "<th>Time</th>";
     head.insertCell().outerHTML = "<th>Operation</th>";
@@ -30639,6 +30688,11 @@ var SyncMonitorView = class extends import_obsidian11.ItemView {
       row.insertCell().setText(entry.path ?? "-");
       row.insertCell().setText(entry.message);
     }
+  }
+  createStatCard(container, label, value) {
+    const card = container.createDiv({ cls: "s3-sync-stat-card" });
+    card.createEl("div", { cls: "s3-sync-stat-label", text: label });
+    card.createEl("div", { cls: "s3-sync-stat-value", text: value });
   }
 };
 
