@@ -176,6 +176,29 @@ describe("SyncOrchestrator", () => {
     expect(logger.entries.some((entry) => entry.message.includes("Processing incremental sync"))).toBe(true);
   });
 
+  it("does not delete local files during incremental sync when remote has a tombstone", async () => {
+    const body = new TextEncoder().encode("same");
+    const hash = await sha256(body);
+    vault.addFile("draft.md", body, 1000);
+    await store.save({
+      files: {
+        "draft.md": { mtime: 1000, sha256: hash, size: body.byteLength },
+      },
+      remote_manifest_etag: "etag",
+      synced_at: new Date().toISOString(),
+    });
+    remote.manifest.files["draft.md"] = { deleted: true, etag: "", mtime: 0, sha256: "", size: 0 };
+    const orchestrator = createOrchestrator();
+
+    orchestrator.queueFileSync("draft.md");
+    await vi.waitFor(() => {
+      expect(logger.entries.some((entry) => entry.message.includes("Processing incremental sync"))).toBe(true);
+    });
+
+    expect(vault.hasFile("draft.md")).toBe(true);
+    expect(logger.entries.some((entry) => entry.operation === "delete-local" && entry.path === "draft.md")).toBe(false);
+  });
+
   it("flushes queued changes that arrive during an active sync", async () => {
     const slowRemote = Object.assign(new FakeRemoteStore(), remote, {
       async getManifest() {

@@ -245,7 +245,7 @@ export class SyncOrchestrator {
       message: `Processing incremental sync for ${pending.length} path(s)`,
       operation: "queue",
     });
-    await this.triggerFullSync({ direction: "bidirectional", reason: "incremental" });
+    await this.triggerFullSync({ direction: "push", reason: "incremental" });
   }
 
   private buildExcludePatterns(settings: PluginSettings): string[] {
