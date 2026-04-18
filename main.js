@@ -29810,6 +29810,9 @@ function toArrayBuffer2(data) {
 function isCompressibleTextPath(path) {
   return TEXT_EXTENSIONS.has(extensionOf(path));
 }
+function isGzipData(data) {
+  return data.byteLength >= 2 && data[0] === 31 && data[1] === 139;
+}
 async function gzipCompress(data) {
   if (typeof CompressionStream === "undefined") {
     return data;
@@ -30257,7 +30260,16 @@ var SyncOrchestrator = class {
     try {
       const remoteObject = await this.deps.remote.downloadObject(path);
       const rawBytes = new Uint8Array(remoteObject.body);
-      const restored = remoteMeta?.encoding === "gzip" ? await gzipDecompress(rawBytes) : rawBytes;
+      const shouldDecompress = remoteMeta?.encoding === "gzip" || isCompressibleTextPath(path) && isGzipData(rawBytes);
+      const restored = shouldDecompress ? await gzipDecompress(rawBytes) : rawBytes;
+      if (remoteMeta?.encoding !== "gzip" && shouldDecompress) {
+        this.deps.logger.log({
+          level: "warning",
+          message: "Recovered gzip-compressed text using byte signature because remote encoding metadata was missing or stale",
+          operation: "download",
+          path
+        });
+      }
       return {
         etag: remoteObject.etag,
         restored
@@ -31321,6 +31333,7 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
       deviceId: loaded?.deviceId || globalThis.crypto.randomUUID(),
       logs: loaded?.logs ?? []
     };
+    this.settings.smartTextCompression = false;
     this.applyPlatformSafetyDefaults(loaded ?? {});
     await this.saveSettings();
   }

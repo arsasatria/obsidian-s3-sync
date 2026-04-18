@@ -45,6 +45,10 @@ export function isCompressibleTextPath(path: string): boolean {
   return TEXT_EXTENSIONS.has(extensionOf(path));
 }
 
+export function isGzipData(data: Uint8Array): boolean {
+  return data.byteLength >= 2 && data[0] === 0x1f && data[1] === 0x8b;
+}
+
 export async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {
   if (typeof CompressionStream === "undefined") {
     return data;

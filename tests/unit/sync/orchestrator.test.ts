@@ -422,6 +422,58 @@ describe("SyncOrchestrator", () => {
     expect(logger.entries.some((entry) => entry.message.includes("Remote object missing during download"))).toBe(true);
   });
 
+  it("recovers gzip-compressed markdown when remote encoding metadata is missing", async () => {
+    const compression = await import("../../../src/utils/compression");
+    const originalText = "# Important Journal\n\nThis should stay readable.";
+    const compressed = await compression.gzipCompress(new TextEncoder().encode(originalText));
+    const encodedRemote = Object.assign(new FakeRemoteStore(), remote, {
+      async listFiles() {
+        return {
+          "Notes/journal.md": {
+            deleted: false,
+            etag: "etag-journal",
+            mtime: 3000,
+            sha256: "remote-hash",
+            size: compressed.byteLength,
+          },
+        };
+      },
+      async getManifest() {
+        return {
+          etag: "etag-1",
+          manifest: {
+            device_id: "device-b",
+            files: {
+              "Notes/journal.md": {
+                deleted: false,
+                etag: "etag-journal",
+                mtime: 3000,
+                sha256: "remote-hash",
+                size: compressed.byteLength,
+              },
+            },
+            generated_at: new Date().toISOString(),
+            vault_name: "MockVault",
+            version: "1",
+          },
+        };
+      },
+      async downloadObject() {
+        return {
+          body: compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength) as ArrayBuffer,
+          etag: "etag-journal",
+        };
+      },
+    }) as RemoteStore;
+    const orchestrator = createOrchestrator({}, encodedRemote);
+
+    await orchestrator.triggerFullSync({ direction: "pull" });
+
+    const restored = new TextDecoder().decode(await vault.readBinary("Notes/journal.md"));
+    expect(restored).toBe(originalText);
+    expect(logger.entries.some((entry) => entry.message.includes("Recovered gzip-compressed text using byte signature"))).toBe(true);
+  });
+
   function createOrchestrator(overrides?: Partial<PluginSettings>, remoteStore: RemoteStore = remote): SyncOrchestrator {
     return new SyncOrchestrator({
       deviceId: "device-a",

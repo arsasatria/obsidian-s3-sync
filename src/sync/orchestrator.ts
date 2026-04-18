@@ -9,7 +9,7 @@ import { ThreeWayDiffer } from "./differ";
 import { ConflictResolver } from "./conflict-resolver";
 import { ensureFolderPath, manualActionBackupPath, manualActionRootPath, normalizePathSlashes, safetySnapshotPath } from "../utils/path";
 import { sha256 } from "../utils/hash";
-import { gzipDecompress, prepareCompressedPayload } from "../utils/compression";
+import { gzipDecompress, isCompressibleTextPath, isGzipData, prepareCompressedPayload } from "../utils/compression";
 import { isMissingFileError, isMissingRemoteObjectError } from "../utils/errors";
 
 interface SyncOrchestratorDeps {
@@ -502,10 +502,18 @@ export class SyncOrchestrator {
     try {
       const remoteObject = await this.deps.remote.downloadObject(path);
       const rawBytes = new Uint8Array(remoteObject.body);
-      const restored =
-        remoteMeta?.encoding === "gzip"
-          ? await gzipDecompress(rawBytes)
-          : rawBytes;
+      const shouldDecompress =
+        remoteMeta?.encoding === "gzip" ||
+        (isCompressibleTextPath(path) && isGzipData(rawBytes));
+      const restored = shouldDecompress ? await gzipDecompress(rawBytes) : rawBytes;
+      if (remoteMeta?.encoding !== "gzip" && shouldDecompress) {
+        this.deps.logger.log({
+          level: "warning",
+          message: "Recovered gzip-compressed text using byte signature because remote encoding metadata was missing or stale",
+          operation: "download",
+          path,
+        });
+      }
       return {
         etag: remoteObject.etag,
         restored,

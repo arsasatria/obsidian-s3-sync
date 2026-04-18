@@ -145,6 +145,8 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       deviceId: loaded?.deviceId || globalThis.crypto.randomUUID(),
       logs: loaded?.logs ?? [],
     };
+    // Safety-first migration: disable smart text compression until the vault path is fully proven stable.
+    this.settings.smartTextCompression = false;
     this.applyPlatformSafetyDefaults(loaded ?? {});
     await this.saveSettings();
   }
