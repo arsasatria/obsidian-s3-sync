@@ -295,6 +295,63 @@ describe("SyncOrchestrator", () => {
     expect(status.states.at(-1)?.status).toBe("error");
   });
 
+  it("does not create conflict copies when remote download returns NoSuchKey", async () => {
+    const localBody = new TextEncoder().encode("local version");
+    const baseBody = new TextEncoder().encode("base");
+    const baseHash = await sha256(baseBody);
+    vault.addFile("Notes/conflict.md", localBody, 2000);
+    await store.save({
+      files: {
+        "Notes/conflict.md": { mtime: 1000, sha256: baseHash, size: baseBody.byteLength },
+      },
+      remote_manifest_etag: "etag",
+      synced_at: new Date().toISOString(),
+    });
+    const missingDownloadRemote = Object.assign(new FakeRemoteStore(), remote, {
+      async listFiles() {
+        return {
+          "Notes/conflict.md": {
+            deleted: false,
+            etag: "etag-remote",
+            mtime: 3000,
+            sha256: "remote-hash",
+            size: 25,
+          },
+        };
+      },
+      async getManifest() {
+        return {
+          etag: "etag-1",
+          manifest: {
+            device_id: "device-b",
+            files: {
+              "Notes/conflict.md": {
+                deleted: false,
+                etag: "etag-remote",
+                mtime: 3000,
+                sha256: "remote-hash",
+                size: 25,
+              },
+            },
+            generated_at: new Date().toISOString(),
+            vault_name: "MockVault",
+            version: "1",
+          },
+        };
+      },
+      async downloadObject() {
+        throw new Error("Remote download failed [path=Notes/conflict.md]: status=404 name=NoSuchKey UnknownError");
+      },
+    }) as RemoteStore;
+    const orchestrator = createOrchestrator({ defaultConflictRule: "keep-both" }, missingDownloadRemote);
+
+    await expect(orchestrator.triggerFullSync()).resolves.toBeDefined();
+
+    expect(vault.hasFile("Notes/conflict.md")).toBe(true);
+    expect(vault.listPaths().some((path) => path.includes(".conflict-"))).toBe(false);
+    expect(logger.entries.some((entry) => entry.message.includes("Remote object missing during download"))).toBe(true);
+  });
+
   function createOrchestrator(overrides?: Partial<PluginSettings>, remoteStore: RemoteStore = remote): SyncOrchestrator {
     return new SyncOrchestrator({
       deviceId: "device-a",

@@ -10,7 +10,7 @@ import { ConflictResolver } from "./conflict-resolver";
 import { ensureFolderPath, manualActionBackupPath, manualActionRootPath, normalizePathSlashes, safetySnapshotPath } from "../utils/path";
 import { sha256 } from "../utils/hash";
 import { gzipDecompress, prepareCompressedPayload } from "../utils/compression";
-import { isMissingFileError } from "../utils/errors";
+import { isMissingFileError, isMissingRemoteObjectError } from "../utils/errors";
 
 interface SyncOrchestratorDeps {
   deviceId: string;
@@ -323,6 +323,16 @@ export class SyncOrchestrator {
             continue;
           }
           if (resolution.conflictPath) {
+            const remoteDownload = await this.fetchRemoteDownload(operation.path, manifestFiles);
+            if (!remoteDownload) {
+              this.deps.logger.log({
+                level: "warning",
+                message: "Skipped keep-both conflict copy because remote object disappeared before download",
+                operation: "conflict",
+                path: operation.path,
+              });
+              continue;
+            }
             try {
               const currentLocal = await this.deps.vault.readBinary(operation.path);
               await this.ensureFolders(resolution.conflictPath);
@@ -332,7 +342,7 @@ export class SyncOrchestrator {
                 throw error;
               }
             }
-            await this.downloadPath(operation.path, manifestFiles);
+            await this.applyDownloadedFile(operation.path, manifestFiles, remoteDownload);
           }
         }
       } catch (error) {
@@ -450,14 +460,65 @@ export class SyncOrchestrator {
   }
 
   private async downloadPath(path: string, manifestFiles: Record<string, FileEntry>): Promise<void> {
-    await this.createSafetySnapshot(path, "before-download");
-    const remoteObject = await this.deps.remote.downloadObject(path);
+    const remoteDownload = await this.fetchRemoteDownload(path, manifestFiles);
+    if (!remoteDownload) {
+      return;
+    }
+    await this.applyDownloadedFile(path, manifestFiles, remoteDownload);
+  }
+
+  private async fetchRemoteDownload(
+    path: string,
+    manifestFiles: Record<string, FileEntry>,
+  ): Promise<{ etag: string; restored: Uint8Array } | null> {
     const remoteMeta = manifestFiles[path];
-    const rawBytes = new Uint8Array(remoteObject.body);
-    const restored =
-      remoteMeta?.encoding === "gzip"
-        ? await gzipDecompress(rawBytes)
-        : rawBytes;
+    try {
+      const remoteObject = await this.deps.remote.downloadObject(path);
+      const rawBytes = new Uint8Array(remoteObject.body);
+      const restored =
+        remoteMeta?.encoding === "gzip"
+          ? await gzipDecompress(rawBytes)
+          : rawBytes;
+      return {
+        etag: remoteObject.etag,
+        restored,
+      };
+    } catch (error) {
+      if (!isMissingRemoteObjectError(error)) {
+        throw error;
+      }
+      manifestFiles[path] = {
+        ...(manifestFiles[path] ?? {
+          etag: "",
+          mtime: Date.now(),
+          sha256: "",
+          size: 0,
+        }),
+        deleted: true,
+        encoding: "identity",
+        etag: "",
+        mtime: Date.now(),
+        sha256: "",
+        size: 0,
+      };
+      this.deps.logger.log({
+        level: "warning",
+        message: "Remote object missing during download; keeping local copy and writing tombstone",
+        operation: "download",
+        path,
+      });
+      return null;
+    }
+  }
+
+  private async applyDownloadedFile(
+    path: string,
+    manifestFiles: Record<string, FileEntry>,
+    remoteDownload: { etag: string; restored: Uint8Array },
+  ): Promise<void> {
+    await this.createSafetySnapshot(path, "before-download");
+    const remoteMeta = manifestFiles[path];
+    const { restored } = remoteDownload;
     await this.ensureFolders(path);
     this.markInternalMutation(path);
     await this.deps.vault.writeBinary(
@@ -469,7 +530,7 @@ export class SyncOrchestrator {
       ...(manifestFiles[path] ?? { mtime: Date.now(), size: restored.byteLength, deleted: false }),
       deleted: false,
       encoding: remoteMeta?.encoding ?? "identity",
-      etag: remoteObject.etag,
+      etag: remoteDownload.etag,
       sha256: sha,
       size: restored.byteLength,
       mtime: Date.now(),
