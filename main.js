@@ -30092,7 +30092,7 @@ var SyncOrchestrator = class {
           if (force) {
             throw new Error(`Force ${direction} should not produce conflicts (${operation2.path})`);
           }
-          const resolution = await this.resolver.resolve({
+          const resolution = direction === "push" ? { type: "upload", path: operation2.path } : direction === "pull" ? { type: "download", path: operation2.path } : await this.resolver.resolve({
             path: operation2.path,
             lastSync: void 0,
             local: local.get(operation2.path),
@@ -31307,6 +31307,7 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...loaded ?? {},
+      excludePatterns: this.mergeDefaultExcludes(loaded?.excludePatterns),
       deviceId: loaded?.deviceId || globalThis.crypto.randomUUID(),
       logs: loaded?.logs ?? []
     };
@@ -31315,6 +31316,15 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+  mergeDefaultExcludes(loadedExcludes) {
+    const merged = [...loadedExcludes ?? []];
+    for (const pattern of DEFAULT_EXCLUDES) {
+      if (!merged.includes(pattern)) {
+        merged.push(pattern);
+      }
+    }
+    return merged;
   }
   refreshSchedule() {
     if (this.scheduleTimer !== null) {

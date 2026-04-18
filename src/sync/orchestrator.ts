@@ -307,12 +307,17 @@ export class SyncOrchestrator {
           if (force) {
             throw new Error(`Force ${direction} should not produce conflicts (${operation.path})`);
           }
-          const resolution = await this.resolver.resolve({
-            path: operation.path,
-            lastSync: undefined,
-            local: local.get(operation.path),
-            remote: remoteMap.get(operation.path),
-          });
+          const resolution =
+            direction === "push"
+              ? { type: "upload", path: operation.path } as const
+              : direction === "pull"
+                ? { type: "download", path: operation.path } as const
+                : await this.resolver.resolve({
+                    path: operation.path,
+                    lastSync: undefined,
+                    local: local.get(operation.path),
+                    remote: remoteMap.get(operation.path),
+                  });
           this.deps.logger.log({
             level: "warning",
             message: `Conflict resolved as ${resolution.type} during ${direction} sync`,

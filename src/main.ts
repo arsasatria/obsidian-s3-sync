@@ -1,7 +1,7 @@
 import { Notice, Platform, Plugin } from "obsidian";
 import { createS3Client } from "./s3/client";
 import { AwsRemoteStore } from "./s3/store";
-import { DEFAULT_SETTINGS, type PluginSettings, type SyncLogEntry } from "./types/settings";
+import { DEFAULT_EXCLUDES, DEFAULT_SETTINGS, type PluginSettings, type SyncLogEntry } from "./types/settings";
 import { ObsidianLastSyncStore } from "./obsidian/last-sync-store";
 import { ObsidianManualActionStore } from "./obsidian/manual-action-store";
 import { ObsidianVaultPort } from "./obsidian/vault-port";
@@ -141,6 +141,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...(loaded ?? {}),
+      excludePatterns: this.mergeDefaultExcludes(loaded?.excludePatterns),
       deviceId: loaded?.deviceId || globalThis.crypto.randomUUID(),
       logs: loaded?.logs ?? [],
     };
@@ -150,6 +151,16 @@ export default class ObsidianS3SyncPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  private mergeDefaultExcludes(loadedExcludes?: string[]): string[] {
+    const merged = [...(loadedExcludes ?? [])];
+    for (const pattern of DEFAULT_EXCLUDES) {
+      if (!merged.includes(pattern)) {
+        merged.push(pattern);
+      }
+    }
+    return merged;
   }
 
   refreshSchedule(): void {

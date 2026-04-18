@@ -291,6 +291,35 @@ describe("SyncOrchestrator", () => {
     expect(vault.hasFile("server.md")).toBe(false);
   });
 
+  it("resolves push conflicts by keeping local content without creating conflict copies", async () => {
+    const localBody = new TextEncoder().encode("local version");
+    const remoteBody = new TextEncoder().encode("remote version");
+    const baseBody = new TextEncoder().encode("base");
+    const baseHash = await sha256(baseBody);
+    vault.addFile("Notes/live.md", localBody, 2000);
+    remote.files.set("Notes/live.md", remoteBody);
+    remote.manifest.files["Notes/live.md"] = {
+      deleted: false,
+      etag: "etag-remote",
+      mtime: 3000,
+      sha256: await sha256(remoteBody),
+      size: remoteBody.byteLength,
+    };
+    await store.save({
+      files: {
+        "Notes/live.md": { mtime: 1000, sha256: baseHash, size: baseBody.byteLength },
+      },
+      remote_manifest_etag: "etag",
+      synced_at: new Date().toISOString(),
+    });
+    const orchestrator = createOrchestrator({ defaultConflictRule: "keep-both" });
+
+    await orchestrator.triggerFullSync({ direction: "push", reason: "incremental" });
+
+    expect(vault.listPaths().some((path) => path.includes(".conflict-"))).toBe(false);
+    expect(logger.entries.some((entry) => entry.operation === "conflict" && entry.message.includes("resolved as upload during push sync"))).toBe(true);
+  });
+
   it("reports sync errors", async () => {
     const brokenRemote = Object.assign(new FakeRemoteStore(), remote, {
       async getManifest() {
