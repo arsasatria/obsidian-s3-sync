@@ -84,7 +84,7 @@ export class SyncOrchestrator {
               this.differ.diff(local, lastSyncMap, remote).filter((operation) => operation.type !== "noop"),
               options?.direction ?? "bidirectional",
             )
-      ).filter((operation) => operation.type !== "noop");
+      ).filter((operation) => operation.type !== "noop" && !this.excludeFilter.isExcluded(operation.path));
       const summary = summarize(operations);
 
       if (options?.dryRun) {
@@ -165,6 +165,9 @@ export class SyncOrchestrator {
   }
 
   queueFileDelete(path: string): void {
+    if (this.excludeFilter.isExcluded(path)) {
+      return;
+    }
     if (this.shouldIgnoreInternalMutation(path)) {
       return;
     }
@@ -179,6 +182,9 @@ export class SyncOrchestrator {
   }
 
   queueFileRename(oldPath: string, newPath: string): void {
+    if (this.excludeFilter.isExcluded(oldPath) && this.excludeFilter.isExcluded(newPath)) {
+      return;
+    }
     if (this.shouldIgnoreInternalMutation(oldPath) || this.shouldIgnoreInternalMutation(newPath)) {
       return;
     }
@@ -336,6 +342,7 @@ export class SyncOrchestrator {
             try {
               const currentLocal = await this.deps.vault.readBinary(operation.path);
               await this.ensureFolders(resolution.conflictPath);
+              this.markInternalMutation(resolution.conflictPath);
               await this.deps.vault.writeBinary(resolution.conflictPath, currentLocal);
             } catch (error) {
               if (!isMissingFileError(error)) {

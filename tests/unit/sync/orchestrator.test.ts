@@ -199,6 +199,15 @@ describe("SyncOrchestrator", () => {
     expect(logger.entries.some((entry) => entry.operation === "delete-local" && entry.path === "draft.md")).toBe(false);
   });
 
+  it("ignores excluded conflict-copy deletes from the watcher queue", async () => {
+    const orchestrator = createOrchestrator();
+
+    orchestrator.queueFileDelete("Notes/draft.conflict-device-a-now.md");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(logger.entries.some((entry) => entry.path === "Notes/draft.conflict-device-a-now.md")).toBe(false);
+  });
+
   it("flushes queued changes that arrive during an active sync", async () => {
     const slowRemote = Object.assign(new FakeRemoteStore(), remote, {
       async getManifest() {

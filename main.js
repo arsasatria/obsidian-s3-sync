@@ -29309,6 +29309,7 @@ init_esbuild_polyfills();
 var DEFAULT_EXCLUDES = [
   ".obsidian/workspace.json",
   ".obsidian/workspace-mobile.json",
+  "*.conflict-*",
   ".trash/**",
   ".s3sync-actions/**",
   ".s3sync-safety/**"
@@ -29890,7 +29891,7 @@ var SyncOrchestrator = class {
       const operations = (options?.force ? this.buildForceOperations(local, remote, options?.direction ?? "bidirectional") : this.filterOperations(
         this.differ.diff(local, lastSyncMap, remote).filter((operation2) => operation2.type !== "noop"),
         options?.direction ?? "bidirectional"
-      )).filter((operation2) => operation2.type !== "noop");
+      )).filter((operation2) => operation2.type !== "noop" && !this.excludeFilter.isExcluded(operation2.path));
       const summary = summarize(operations);
       if (options?.dryRun) {
         this.deps.logger.log({
@@ -29963,6 +29964,9 @@ var SyncOrchestrator = class {
     void this.flushQueue();
   }
   queueFileDelete(path) {
+    if (this.excludeFilter.isExcluded(path)) {
+      return;
+    }
     if (this.shouldIgnoreInternalMutation(path)) {
       return;
     }
@@ -29976,6 +29980,9 @@ var SyncOrchestrator = class {
     void this.flushQueue();
   }
   queueFileRename(oldPath, newPath) {
+    if (this.excludeFilter.isExcluded(oldPath) && this.excludeFilter.isExcluded(newPath)) {
+      return;
+    }
     if (this.shouldIgnoreInternalMutation(oldPath) || this.shouldIgnoreInternalMutation(newPath)) {
       return;
     }
@@ -30119,6 +30126,7 @@ var SyncOrchestrator = class {
             try {
               const currentLocal = await this.deps.vault.readBinary(operation2.path);
               await this.ensureFolders(resolution.conflictPath);
+              this.markInternalMutation(resolution.conflictPath);
               await this.deps.vault.writeBinary(resolution.conflictPath, currentLocal);
             } catch (error) {
               if (!isMissingFileError(error)) {

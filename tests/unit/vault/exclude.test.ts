@@ -5,6 +5,7 @@ describe("ExcludeFilter", () => {
   const filter = new ExcludeFilter([
     ".obsidian/workspace.json",
     ".trash/**",
+    "*.conflict-*",
     "*.tmp",
     "Private/**",
   ]);
@@ -15,6 +16,7 @@ describe("ExcludeFilter", () => {
 
   it("excludes wildcard extensions", () => {
     expect(filter.isExcluded("notes/draft.tmp")).toBe(true);
+    expect(filter.isExcluded("notes/draft.conflict-device-a-now.md")).toBe(true);
   });
 
   it("excludes folder globs", () => {

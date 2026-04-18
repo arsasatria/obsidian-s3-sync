@@ -68,6 +68,7 @@ export interface PluginSettings {
 export const DEFAULT_EXCLUDES = [
   ".obsidian/workspace.json",
   ".obsidian/workspace-mobile.json",
+  "*.conflict-*",
   ".trash/**",
   ".s3sync-actions/**",
   ".s3sync-safety/**",
