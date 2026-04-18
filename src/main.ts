@@ -3,6 +3,7 @@ import { createS3Client } from "./s3/client";
 import { AwsRemoteStore } from "./s3/store";
 import { DEFAULT_SETTINGS, type PluginSettings, type SyncLogEntry } from "./types/settings";
 import { ObsidianLastSyncStore } from "./obsidian/last-sync-store";
+import { ObsidianManualActionStore } from "./obsidian/manual-action-store";
 import { ObsidianVaultPort } from "./obsidian/vault-port";
 import { SettingsLogger } from "./obsidian/logger";
 import { ObsidianNotificationPort } from "./obsidian/notifications";
@@ -42,6 +43,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
             pull: () => this.runPull(),
             push: () => this.runPush(),
             sync: () => this.runSync(),
+            undo: () => this.undoLastManualAction(),
           },
         ),
     );
@@ -56,6 +58,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       pull: () => void this.runPull(),
       push: () => void this.runPush(),
       sync: () => void this.runSync(),
+      undo: () => void this.undoLastManualAction(),
     });
     this.addRibbonIcon("activity", "S3 Sync: Live monitor", () => void this.openMonitorView());
     this.createOrchestrator();
@@ -74,13 +77,18 @@ export default class ObsidianS3SyncPlugin extends Plugin {
     });
     this.addCommand({
       id: "s3-sync-push-now",
-      name: "Push local changes to S3",
+      name: "Push local state to S3",
       callback: () => void this.runPush(),
     });
     this.addCommand({
       id: "s3-sync-fetch-now",
-      name: "Fetch remote changes from S3",
+      name: "Pull remote state from S3",
       callback: () => void this.runPull(),
+    });
+    this.addCommand({
+      id: "s3-sync-undo-last-manual-action",
+      name: "Undo last force push/pull",
+      callback: () => void this.undoLastManualAction(),
     });
     this.addCommand({
       id: "s3-sync-open-monitor",
@@ -276,11 +284,32 @@ export default class ObsidianS3SyncPlugin extends Plugin {
   async runPush(options?: { dryRun?: boolean; reason?: string; silent?: boolean }): Promise<void> {
     this.createOrchestrator();
     const isManual = !options?.silent;
-    const liveNotice = isManual ? new Notice("S3 Sync: Pushing local changes...", 0) : null;
+    const forceMode = isManual;
+    const liveNotice = isManual ? new Notice("S3 Sync: Preparing force push...", 0) : null;
     try {
+      if (forceMode) {
+        const preview = await this.orchestrator.triggerFullSync({
+          direction: "push",
+          dryRun: true,
+          force: forceMode,
+          notifyErrors: isManual,
+          reason: options?.reason ?? "manual-push",
+        });
+        const confirmed = await new DryRunModal(this.app, preview.operations, preview.summary, {
+          confirmText: "Force Push",
+          description: "Replace S3 with the current local vault state. A rollback snapshot will be created first.",
+          title: "Force push preview",
+        }).openAndWait();
+        if (!confirmed) {
+          liveNotice?.hide();
+          return;
+        }
+        liveNotice?.setMessage("S3 Sync: Force pushing local vault to S3...");
+      }
       const result = await this.orchestrator.triggerFullSync({
         direction: "push",
         dryRun: options?.dryRun,
+        force: forceMode,
         notifyErrors: isManual,
         reason: options?.reason ?? "manual-push",
       });
@@ -290,10 +319,12 @@ export default class ObsidianS3SyncPlugin extends Plugin {
         await this.saveSettings();
       }
       if (isManual && !options?.dryRun) {
-        liveNotice?.setMessage(`S3 Push complete: ${result.summary.upload} upload, ${result.summary.conflict} guarded conflict`);
+        liveNotice?.setMessage(
+          `S3 Push complete: ${result.summary.upload} upload, ${result.summary.deleteRemote} remote delete, undo ready`,
+        );
         window.setTimeout(() => liveNotice?.hide(), 2500);
       } else if (this.settings.notifyOnSuccess && !options?.dryRun) {
-        new Notice(`S3 Push complete: ${result.summary.upload} upload, ${result.summary.conflict} guarded conflict`);
+        new Notice(`S3 Push complete: ${result.summary.upload} upload, ${result.summary.deleteRemote} remote delete, undo ready`);
       }
     } catch (error) {
       await this.trackAutomaticFailure(options?.reason);
@@ -309,11 +340,32 @@ export default class ObsidianS3SyncPlugin extends Plugin {
   async runPull(options?: { dryRun?: boolean; reason?: string; silent?: boolean }): Promise<void> {
     this.createOrchestrator();
     const isManual = !options?.silent;
-    const liveNotice = isManual ? new Notice("S3 Sync: Fetching remote changes...", 0) : null;
+    const forceMode = isManual;
+    const liveNotice = isManual ? new Notice("S3 Sync: Preparing force pull...", 0) : null;
     try {
+      if (forceMode) {
+        const preview = await this.orchestrator.triggerFullSync({
+          direction: "pull",
+          dryRun: true,
+          force: forceMode,
+          notifyErrors: isManual,
+          reason: options?.reason ?? "manual-pull",
+        });
+        const confirmed = await new DryRunModal(this.app, preview.operations, preview.summary, {
+          confirmText: "Force Pull",
+          description: "Replace the local vault with the latest S3 state. A rollback snapshot will be created first.",
+          title: "Force pull preview",
+        }).openAndWait();
+        if (!confirmed) {
+          liveNotice?.hide();
+          return;
+        }
+        liveNotice?.setMessage("S3 Sync: Force pulling S3 into local vault...");
+      }
       const result = await this.orchestrator.triggerFullSync({
         direction: "pull",
         dryRun: options?.dryRun,
+        force: forceMode,
         notifyErrors: isManual,
         reason: options?.reason ?? "manual-pull",
       });
@@ -323,20 +375,41 @@ export default class ObsidianS3SyncPlugin extends Plugin {
         await this.saveSettings();
       }
       if (isManual && !options?.dryRun) {
-        liveNotice?.setMessage(`S3 Fetch complete: ${result.summary.download} download, ${result.summary.conflict} guarded conflict`);
+        liveNotice?.setMessage(
+          `S3 Pull complete: ${result.summary.download} download, ${result.summary.deleteLocal} local delete, undo ready`,
+        );
         window.setTimeout(() => liveNotice?.hide(), 2500);
       } else if (this.settings.notifyOnSuccess && !options?.dryRun) {
-        new Notice(`S3 Fetch complete: ${result.summary.download} download, ${result.summary.conflict} guarded conflict`);
+        new Notice(`S3 Pull complete: ${result.summary.download} download, ${result.summary.deleteLocal} local delete, undo ready`);
       }
     } catch (error) {
       await this.trackAutomaticFailure(options?.reason);
       if (isManual) {
-        liveNotice?.setMessage(`S3 Fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+        liveNotice?.setMessage(`S3 Pull failed: ${error instanceof Error ? error.message : String(error)}`);
         window.setTimeout(() => liveNotice?.hide(), 4000);
       }
       throw error;
     }
     this.refreshMonitorViews();
+  }
+
+  async undoLastManualAction(): Promise<void> {
+    this.createOrchestrator();
+    const liveNotice = new Notice("S3 Sync: Restoring last manual action...", 0);
+    try {
+      const action = await this.orchestrator.undoLastManualAction();
+      if (!action) {
+        liveNotice.setMessage("S3 Sync: No manual push/pull to undo");
+        window.setTimeout(() => liveNotice.hide(), 2500);
+        return;
+      }
+      liveNotice.setMessage(`S3 Sync: Undo ${action.type} complete`);
+      window.setTimeout(() => liveNotice.hide(), 2500);
+    } catch (error) {
+      liveNotice.setMessage(`S3 Sync: Undo failed: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => liveNotice.hide(), 4000);
+      throw error;
+    }
   }
 
   appendLogs(logs: SyncLogEntry[]): void {
@@ -362,6 +435,10 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       this.app.vault.adapter,
       `${this.app.vault.configDir}/plugins/${this.manifest.id}/last-sync.json`,
     );
+    const actionStore = new ObsidianManualActionStore(
+      this.app.vault.adapter,
+      `${this.app.vault.configDir}/plugins/${this.manifest.id}/last-manual-action.json`,
+    );
     const logger = new SettingsLogger(
       () => this.settings,
       (logs) => {
@@ -374,6 +451,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
     const notifier = new ObsidianNotificationPort();
 
     this.orchestrator = new SyncOrchestrator({
+      actionStore,
       conflictPrompt: async (context: ConflictContext) => new ConflictModal(this.app, context).openAndWait(),
       deviceId: this.settings.deviceId,
       lastSyncStore,

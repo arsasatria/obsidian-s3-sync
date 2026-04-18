@@ -68,3 +68,12 @@ export function safetySnapshotPath(originalPath: string, reason: string, timesta
   const normalized = normalizePathSlashes(originalPath);
   return `.s3sync-safety/${normalized}.snapshot-${reason}-${timestamp}`;
 }
+
+export function manualActionBackupPath(actionId: string, side: "local" | "remote", originalPath: string): string {
+  const normalized = normalizePathSlashes(originalPath);
+  return `.s3sync-actions/${actionId}/${side}/${normalized}`;
+}
+
+export function manualActionRootPath(actionId: string): string {
+  return `.s3sync-actions/${actionId}`;
+}

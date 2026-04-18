@@ -4,8 +4,11 @@ This is the initial public release of `S3 Sync`, an Obsidian plugin for synchron
 
 ## Highlights
 
-- Manual `Push`, `Fetch`, and `Sync` workflows
+- Manual `Push`, `Pull`, `Sync`, and `Undo` workflows
 - Bidirectional synchronization with three-way diff planning
+- Manual `Push` now force-replaces S3 with the current local vault state
+- Manual `Pull` now force-replaces the local vault with the latest S3 state
+- Last manual `Push` or `Pull` can be rolled back with `Undo`
 - Conflict handling with `keep-local`, `keep-remote`, `keep-both`, and `ask-user`
 - Incremental synchronization based on vault changes
 - Scheduled sync, startup sync, and sync on save
@@ -53,3 +56,4 @@ The release was validated with:
 - For many self-hosted S3-compatible services such as MinIO, `Force path style` should remain enabled.
 - `Region` is optional and may be left blank for many S3-compatible providers.
 - It is recommended to test the plugin in a disposable vault before using it in a primary vault.
+- Manual `Push` and `Pull` are source-of-truth replacement actions and should be used intentionally.

@@ -13,6 +13,7 @@ export interface SyncLogEntry {
     | "delete-local"
     | "delete-remote"
     | "conflict"
+    | "manual"
     | "manifest"
     | "system"
     | "scan-local"
@@ -68,6 +69,7 @@ export const DEFAULT_EXCLUDES = [
   ".obsidian/workspace.json",
   ".obsidian/workspace-mobile.json",
   ".trash/**",
+  ".s3sync-actions/**",
   ".s3sync-safety/**",
 ];
 

@@ -67,7 +67,9 @@ After the plugin is enabled:
    - `Prefix`, if needed
 3. For MinIO, keep `Force path style` enabled.
 4. Click `Test connection`.
-5. Once the connection succeeds, run `Push`, `Fetch`, or `Run full sync now` from the Command Palette or the plugin's manual action buttons.
+5. Once the connection succeeds, run `Push`, `Pull`, or `Run full sync now` from the Command Palette or the plugin's manual action buttons.
+6. Use `Push` only when the current device should replace the S3 copy, and use `Pull` only when S3 should replace the local vault.
+7. If you trigger a manual `Push` or `Pull` by mistake, use `Undo last force push/pull` immediately.
 
 ## Updating the Plugin
 
@@ -113,4 +115,5 @@ For this project, the recommended runtime baseline is `Node.js 24.14.1 LTS`.
 
 - Test the plugin in a disposable vault before using it in a primary vault
 - Keep a backup of the vault before the first sync
+- Treat manual `Push` and `Pull` as source-of-truth replacement operations
 - Do not share your `Access key ID` or `Secret access key`

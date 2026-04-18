@@ -59,8 +59,9 @@ export class SyncMonitorView extends ItemView {
 
     const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new ButtonComponent(actions).setButtonText("Push").onClick(async () => this.plugin.runPush());
-    new ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.plugin.runPull());
+    new ButtonComponent(actions).setButtonText("Pull").onClick(async () => this.plugin.runPull());
     new ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync());
+    new ButtonComponent(actions).setButtonText("Undo").onClick(async () => this.plugin.undoLastManualAction());
 
     const tableCard = contentEl.createDiv({ cls: "s3-sync-table-card" });
     tableCard.createEl("h3", { text: "Recent Activity" });

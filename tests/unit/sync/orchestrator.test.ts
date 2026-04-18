@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryLastSyncStore } from "../../../src/core/memory-store";
+import { MemoryActionStore, MemoryLastSyncStore } from "../../../src/core/memory-store";
 import { SyncOrchestrator } from "../../../src/sync/orchestrator";
 import { DEFAULT_SETTINGS, type PluginSettings, type SyncLogEntry } from "../../../src/types/settings";
 import type { LoggerPort, NotificationPort, RemoteStore, StatusPort } from "../../../src/core/interfaces";
@@ -102,6 +102,7 @@ describe("SyncOrchestrator", () => {
   let vault: MockVault;
   let remote: FakeRemoteStore;
   let store: MemoryLastSyncStore;
+  let actionStore: MemoryActionStore;
   let logger: TestLogger;
   let notifier: TestNotifier;
   let status: TestStatus;
@@ -110,6 +111,7 @@ describe("SyncOrchestrator", () => {
     vault = new MockVault();
     remote = new FakeRemoteStore();
     store = new MemoryLastSyncStore();
+    actionStore = new MemoryActionStore();
     logger = new TestLogger();
     notifier = new TestNotifier();
     status = new TestStatus();
@@ -209,6 +211,54 @@ describe("SyncOrchestrator", () => {
     expect(vault.hasFile("listed.md")).toBe(true);
   });
 
+  it("force push deletes remote-only files and can undo the action", async () => {
+    const remoteBody = new TextEncoder().encode("remote-only");
+    remote.files.set("old.md", remoteBody);
+    remote.manifest.files["old.md"] = {
+      deleted: false,
+      etag: "etag-old",
+      mtime: 1000,
+      sha256: await sha256(remoteBody),
+      size: remoteBody.byteLength,
+    };
+    vault.addFile("new.md", "local-only", 2000);
+    const orchestrator = createOrchestrator();
+
+    await orchestrator.triggerFullSync({ direction: "push", force: true });
+
+    expect(remote.files.has("old.md")).toBe(false);
+    expect(remote.files.has("new.md")).toBe(true);
+
+    await orchestrator.undoLastManualAction();
+
+    expect(remote.files.has("old.md")).toBe(true);
+    expect(remote.files.has("new.md")).toBe(false);
+  });
+
+  it("force pull deletes local-only files and can undo the action", async () => {
+    const remoteBody = new TextEncoder().encode("server");
+    remote.files.set("server.md", remoteBody);
+    remote.manifest.files["server.md"] = {
+      deleted: false,
+      etag: "etag-server",
+      mtime: 1000,
+      sha256: await sha256(remoteBody),
+      size: remoteBody.byteLength,
+    };
+    vault.addFile("local.md", "mine", 2000);
+    const orchestrator = createOrchestrator();
+
+    await orchestrator.triggerFullSync({ direction: "pull", force: true });
+
+    expect(vault.hasFile("local.md")).toBe(false);
+    expect(vault.hasFile("server.md")).toBe(true);
+
+    await orchestrator.undoLastManualAction();
+
+    expect(vault.hasFile("local.md")).toBe(true);
+    expect(vault.hasFile("server.md")).toBe(false);
+  });
+
   it("reports sync errors", async () => {
     const brokenRemote = Object.assign(new FakeRemoteStore(), remote, {
       async getManifest() {
@@ -225,6 +275,7 @@ describe("SyncOrchestrator", () => {
   function createOrchestrator(overrides?: Partial<PluginSettings>, remoteStore: RemoteStore = remote): SyncOrchestrator {
     return new SyncOrchestrator({
       deviceId: "device-a",
+      actionStore,
       lastSyncStore: store,
       logger,
       notifier,

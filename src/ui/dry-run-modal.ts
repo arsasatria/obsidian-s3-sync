@@ -8,6 +8,11 @@ export class DryRunModal extends Modal {
     app: Modal["app"],
     private readonly operations: SyncOperation[],
     private readonly summary: SyncPlanSummary,
+    private readonly options?: {
+      confirmText?: string;
+      description?: string;
+      title?: string;
+    },
   ) {
     super(app);
   }
@@ -23,9 +28,11 @@ export class DryRunModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("s3-sync-dry-run-modal");
-    contentEl.createEl("h2", { text: "Dry run preview" });
+    contentEl.createEl("h2", { text: this.options?.title ?? "Dry run preview" });
     contentEl.createEl("p", {
-      text: `${this.summary.upload} upload, ${this.summary.download} download, ${this.summary.deleteLocal} delete local, ${this.summary.deleteRemote} delete remote, ${this.summary.conflict} conflict`,
+      text:
+        this.options?.description ??
+        `${this.summary.upload} upload, ${this.summary.download} download, ${this.summary.deleteLocal} delete local, ${this.summary.deleteRemote} delete remote, ${this.summary.conflict} conflict`,
     });
 
     const table = contentEl.createEl("table", { cls: "s3-sync-table" });
@@ -45,7 +52,7 @@ export class DryRunModal extends Modal {
       this.resolvePromise(false);
       this.close();
     });
-    new ButtonComponent(actions).setButtonText("Run Sync").setCta().onClick(() => {
+    new ButtonComponent(actions).setButtonText(this.options?.confirmText ?? "Run Sync").setCta().onClick(() => {
       this.resolvePromise(true);
       this.close();
     });

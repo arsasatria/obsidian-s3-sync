@@ -12,6 +12,7 @@ export class SyncLogView extends ItemView {
       push: () => Promise<void>;
       pull: () => Promise<void>;
       sync: () => Promise<void>;
+      undo: () => Promise<void>;
     },
   ) {
     super(leaf);
@@ -42,8 +43,9 @@ export class SyncLogView extends ItemView {
 
     const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new ButtonComponent(actions).setButtonText("Push").onClick(async () => this.actions.push());
-    new ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.actions.pull());
+    new ButtonComponent(actions).setButtonText("Pull").onClick(async () => this.actions.pull());
     new ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.actions.sync());
+    new ButtonComponent(actions).setButtonText("Undo").onClick(async () => this.actions.undo());
     new ButtonComponent(actions).setButtonText("Clear log").onClick(() => {
       this.clearLogs();
       this.render();

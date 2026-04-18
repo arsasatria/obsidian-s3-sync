@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SyncOrchestrator } from "../../src/sync/orchestrator";
 import { DEFAULT_SETTINGS, type PluginSettings, type SyncLogEntry } from "../../src/types/settings";
-import { MemoryLastSyncStore } from "../../src/core/memory-store";
+import { MemoryActionStore, MemoryLastSyncStore } from "../../src/core/memory-store";
 import type { LoggerPort, NotificationPort, StatusPort } from "../../src/core/interfaces";
 import { MockVault } from "./setup/mock-vault";
 import { MockS3 } from "./setup/mock-s3";
@@ -36,11 +36,13 @@ describe("Full sync integration", () => {
   let s3: MockS3;
   let orchestrator: SyncOrchestrator;
   let store: MemoryLastSyncStore;
+  let actionStore: MemoryActionStore;
 
   beforeEach(() => {
     vault = new MockVault();
     s3 = new MockS3();
     store = new MemoryLastSyncStore();
+    actionStore = new MemoryActionStore();
     orchestrator = createOrchestrator();
   });
 
@@ -127,6 +129,7 @@ describe("Full sync integration", () => {
   function createOrchestrator(overrides?: Partial<PluginSettings>): SyncOrchestrator {
     return new SyncOrchestrator({
       deviceId: "device-a",
+      actionStore,
       lastSyncStore: store,
       logger: new SilentLogger(),
       notifier: new SilentNotifier(),

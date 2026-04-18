@@ -1,6 +1,7 @@
 import type { LastSyncState, LocalFileState, RemoteManifest } from "../types/manifest";
 import type { FileEntry } from "../types/manifest";
 import type { SyncLogEntry } from "../types/settings";
+import type { ManualActionRecord } from "../types/action";
 
 export interface VaultFileRecord {
   path: string;
@@ -22,6 +23,12 @@ export interface VaultPort {
 export interface LastSyncStore {
   load(): Promise<LastSyncState>;
   save(state: LastSyncState): Promise<void>;
+}
+
+export interface ActionStore {
+  load(): Promise<ManualActionRecord | null>;
+  save(record: ManualActionRecord): Promise<void>;
+  clear(): Promise<void>;
 }
 
 export interface S3ObjectRecord {

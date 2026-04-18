@@ -28,9 +28,10 @@ export class S3SyncSettingTab extends PluginSettingTab {
     const quickSection = this.createSection(containerEl, "Quick Actions", "Use these buttons for everyday sync tasks.");
     new Setting(quickSection)
       .setName("Sync now")
-      .setDesc("Run a one-time push, fetch, or full sync.")
+      .setDesc("Run a one-time push, pull, or full sync.")
       .addButton((button) => button.setButtonText("Push").onClick(async () => this.plugin.runPush()))
-      .addButton((button) => button.setButtonText("Fetch").onClick(async () => this.plugin.runPull()))
+      .addButton((button) => button.setButtonText("Pull").onClick(async () => this.plugin.runPull()))
+      .addButton((button) => button.setButtonText("Undo").onClick(async () => this.plugin.undoLastManualAction()))
       .addButton((button) => button.setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync()));
 
     new Setting(quickSection)

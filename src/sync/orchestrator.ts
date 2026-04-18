@@ -1,18 +1,20 @@
 import type { FileEntry, LastSyncState, RemoteManifest } from "../types/manifest";
 import type { PluginSettings } from "../types/settings";
 import type { ConflictContext, SyncExecutionOptions, SyncOperation, SyncPlanSummary, SyncRunResult } from "../types/sync";
-import type { LastSyncStore, LoggerPort, NotificationPort, RemoteStore, StatusPort, VaultPort } from "../core/interfaces";
+import type { ManualActionRecord } from "../types/action";
+import type { ActionStore, LastSyncStore, LoggerPort, NotificationPort, RemoteStore, StatusPort, VaultPort } from "../core/interfaces";
 import { ExcludeFilter } from "../vault/exclude";
 import { buildLocalState } from "../core/local-state";
 import { ThreeWayDiffer } from "./differ";
 import { ConflictResolver } from "./conflict-resolver";
-import { conflictPath, ensureFolderPath, normalizePathSlashes, safetySnapshotPath } from "../utils/path";
+import { ensureFolderPath, manualActionBackupPath, manualActionRootPath, normalizePathSlashes, safetySnapshotPath } from "../utils/path";
 import { sha256 } from "../utils/hash";
 import { gzipDecompress, prepareCompressedPayload } from "../utils/compression";
 import { isMissingFileError } from "../utils/errors";
 
 interface SyncOrchestratorDeps {
   deviceId: string;
+  actionStore: ActionStore;
   lastSyncStore: LastSyncStore;
   logger: LoggerPort;
   notifier: NotificationPort;
@@ -28,6 +30,7 @@ export class SyncOrchestrator {
   private readonly excludeFilter: ExcludeFilter;
   private readonly resolver: ConflictResolver;
   private readonly queuedPaths = new Set<string>();
+  private readonly internalMutationIgnores = new Map<string, number>();
   private running = false;
 
   constructor(private readonly deps: SyncOrchestratorDeps) {
@@ -74,10 +77,14 @@ export class SyncOrchestrator {
         operation: "manifest",
       });
       const lastSyncMap = new Map(Object.entries(lastSync.files));
-      const operations = this.filterOperations(
-        this.differ.diff(local, lastSyncMap, remote).filter((operation) => operation.type !== "noop"),
-        options?.direction ?? "bidirectional",
-      );
+      const operations = (
+        options?.force
+          ? this.buildForceOperations(local, remote, options?.direction ?? "bidirectional")
+          : this.filterOperations(
+              this.differ.diff(local, lastSyncMap, remote).filter((operation) => operation.type !== "noop"),
+              options?.direction ?? "bidirectional",
+            )
+      ).filter((operation) => operation.type !== "noop");
       const summary = summarize(operations);
 
       if (options?.dryRun) {
@@ -90,7 +97,17 @@ export class SyncOrchestrator {
         return { applied: false, operations, summary };
       }
 
-      const updatedManifest = await this.executeOperations(operations, local, remoteResult.manifest, options?.direction ?? "bidirectional");
+      const manualAction =
+        options?.force && (options?.direction === "push" || options?.direction === "pull")
+          ? await this.captureManualActionBackup(options.direction, operations, local, remote, lastSync, remoteResult.manifest)
+          : null;
+      const updatedManifest = await this.executeOperations(
+        operations,
+        local,
+        remoteResult.manifest,
+        options?.direction ?? "bidirectional",
+        options?.force ?? false,
+      );
       this.deps.logger.log({
         level: "info",
         message: "Uploading updated remote manifest",
@@ -102,6 +119,9 @@ export class SyncOrchestrator {
         remote_manifest_etag: remoteManifestEtag,
         synced_at: new Date().toISOString(),
       });
+      if (manualAction) {
+        await this.deps.actionStore.save(manualAction);
+      }
 
       this.deps.status.setStatus(summary.conflict > 0 ? "conflict" : "idle", "Sync complete");
       this.deps.logger.log({
@@ -131,6 +151,9 @@ export class SyncOrchestrator {
     if (this.excludeFilter.isExcluded(path)) {
       return;
     }
+    if (this.shouldIgnoreInternalMutation(path)) {
+      return;
+    }
     this.queuedPaths.add(path);
     this.deps.logger.log({
       level: "info",
@@ -142,6 +165,9 @@ export class SyncOrchestrator {
   }
 
   queueFileDelete(path: string): void {
+    if (this.shouldIgnoreInternalMutation(path)) {
+      return;
+    }
     this.queuedPaths.add(path);
     this.deps.logger.log({
       level: "info",
@@ -153,6 +179,9 @@ export class SyncOrchestrator {
   }
 
   queueFileRename(oldPath: string, newPath: string): void {
+    if (this.shouldIgnoreInternalMutation(oldPath) || this.shouldIgnoreInternalMutation(newPath)) {
+      return;
+    }
     this.queuedPaths.add(oldPath);
     this.queuedPaths.add(newPath);
     this.deps.logger.log({
@@ -166,6 +195,43 @@ export class SyncOrchestrator {
 
   async testConnection(): Promise<void> {
     await this.deps.remote.testConnection();
+  }
+
+  async undoLastManualAction(): Promise<ManualActionRecord | null> {
+    const action = await this.deps.actionStore.load();
+    if (!action) {
+      return null;
+    }
+    if (this.running) {
+      throw new Error("A sync is already running");
+    }
+
+    this.running = true;
+    this.deps.status.setStatus("syncing", `Undoing last ${action.type}`);
+    try {
+      if (action.type === "push") {
+        await this.undoPush(action);
+      } else {
+        await this.undoPull(action);
+      }
+      await this.deps.lastSyncStore.save(action.lastSyncBefore);
+      await this.cleanupManualAction(action);
+      this.deps.status.setStatus("idle", `Undo ${action.type} complete`);
+      this.deps.logger.log({
+        level: "info",
+        message: `Undo ${action.type} completed`,
+        operation: "manual",
+      });
+      return action;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.logger.log({ level: "error", message: `Undo ${action.type} failed: ${message}`, operation: "manual" });
+      this.deps.status.setStatus("error", message);
+      throw error;
+    } finally {
+      this.running = false;
+      this.deps.status.setProgress(0, 0);
+    }
   }
 
   private async flushQueue(): Promise<void> {
@@ -194,6 +260,7 @@ export class SyncOrchestrator {
     local: Map<string, { mtime: number; size: number; sha256: string }>,
     remoteManifest: RemoteManifest,
     direction: "bidirectional" | "push" | "pull",
+    force: boolean,
   ): Promise<RemoteManifest> {
     const manifestFiles: Record<string, FileEntry> = { ...remoteManifest.files };
     const remoteMap = new Map(Object.entries(remoteManifest.files));
@@ -231,6 +298,9 @@ export class SyncOrchestrator {
           continue;
         }
         if (operation.type === "conflict") {
+          if (force) {
+            throw new Error(`Force ${direction} should not produce conflicts (${operation.path})`);
+          }
           const resolution = await this.resolver.resolve({
             path: operation.path,
             lastSync: undefined,
@@ -389,6 +459,7 @@ export class SyncOrchestrator {
         ? await gzipDecompress(rawBytes)
         : rawBytes;
     await this.ensureFolders(path);
+    this.markInternalMutation(path);
     await this.deps.vault.writeBinary(
       path,
       restored.buffer.slice(restored.byteOffset, restored.byteOffset + restored.byteLength) as ArrayBuffer,
@@ -410,6 +481,7 @@ export class SyncOrchestrator {
     try {
       const exists = await this.deps.vault.exists(path);
       if (exists) {
+        this.markInternalMutation(path);
         await this.deps.vault.delete(path);
       }
     } catch (error) {
@@ -444,6 +516,203 @@ export class SyncOrchestrator {
       operation.type === "delete-local" ||
       operation.type === "conflict",
     );
+  }
+
+  private buildForceOperations(
+    local: Map<string, { mtime: number; size: number; sha256: string }>,
+    remote: Map<string, FileEntry>,
+    direction: "bidirectional" | "push" | "pull",
+  ): SyncOperation[] {
+    if (direction === "bidirectional") {
+      return this.differ.diff(local, new Map(), remote).filter((operation) => operation.type !== "noop");
+    }
+
+    if (direction === "push") {
+      const operations: SyncOperation[] = [];
+      const paths = new Set([...local.keys(), ...remote.keys()]);
+      for (const path of [...paths].sort()) {
+        const localEntry = local.get(path);
+        const remoteEntry = remote.get(path);
+        const remoteExists = Boolean(remoteEntry && !remoteEntry.deleted);
+        if (localEntry) {
+          if (!remoteExists || remoteEntry?.sha256 !== localEntry.sha256) {
+            operations.push({ type: "upload", path });
+          }
+          continue;
+        }
+        if (remoteExists) {
+          operations.push({ type: "delete-remote", path });
+        }
+      }
+      return operations;
+    }
+
+    if (direction === "pull") {
+      const operations: SyncOperation[] = [];
+      const paths = new Set([...local.keys(), ...remote.keys()]);
+      for (const path of [...paths].sort()) {
+        const localEntry = local.get(path);
+        const remoteEntry = remote.get(path);
+        const remoteExists = Boolean(remoteEntry && !remoteEntry.deleted);
+        if (remoteExists) {
+          if (!localEntry || localEntry.sha256 !== remoteEntry?.sha256) {
+            operations.push({ type: "download", path });
+          }
+          continue;
+        }
+        if (localEntry) {
+          operations.push({ type: "delete-local", path });
+        }
+      }
+      return operations;
+    }
+
+    return [];
+  }
+
+  private async captureManualActionBackup(
+    direction: "push" | "pull",
+    operations: SyncOperation[],
+    local: Map<string, { mtime: number; size: number; sha256: string }>,
+    remote: Map<string, FileEntry>,
+    lastSync: LastSyncState,
+    remoteManifest: RemoteManifest,
+  ): Promise<ManualActionRecord> {
+    const previous = await this.deps.actionStore.load();
+    if (previous) {
+      await this.cleanupManualAction(previous);
+    }
+
+    const actionId = globalThis.crypto.randomUUID();
+    const action: ManualActionRecord = {
+      id: actionId,
+      type: direction,
+      createdAt: new Date().toISOString(),
+      createdLocalPaths: [],
+      createdRemotePaths: [],
+      localBackups: [],
+      remoteBackups: [],
+      lastSyncBefore: structuredClone(lastSync),
+      remoteManifestBefore: structuredClone(remoteManifest),
+    };
+
+    if (direction === "push") {
+      for (const operation of operations) {
+        if (operation.type === "upload") {
+          const remoteEntry = remote.get(operation.path);
+          if (!remoteEntry || remoteEntry.deleted) {
+            action.createdRemotePaths.push(operation.path);
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "remote", operation.path);
+          await this.writeBackupFile(backupPath, new Uint8Array((await this.deps.remote.downloadObject(operation.path)).body));
+          action.remoteBackups.push({ backupPath, manifestEntry: { ...remoteEntry }, path: operation.path });
+          continue;
+        }
+        if (operation.type === "delete-remote") {
+          const remoteEntry = remote.get(operation.path);
+          if (!remoteEntry || remoteEntry.deleted) {
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "remote", operation.path);
+          await this.writeBackupFile(backupPath, new Uint8Array((await this.deps.remote.downloadObject(operation.path)).body));
+          action.remoteBackups.push({ backupPath, manifestEntry: { ...remoteEntry }, path: operation.path });
+        }
+      }
+    } else {
+      for (const operation of operations) {
+        if (operation.type === "download") {
+          const localEntry = local.get(operation.path);
+          if (!localEntry) {
+            action.createdLocalPaths.push(operation.path);
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "local", operation.path);
+          await this.writeBackupFile(backupPath, new Uint8Array(await this.deps.vault.readBinary(operation.path)));
+          action.localBackups.push({ backupPath, path: operation.path, state: { ...localEntry } });
+          continue;
+        }
+        if (operation.type === "delete-local") {
+          const localEntry = local.get(operation.path);
+          if (!localEntry) {
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "local", operation.path);
+          await this.writeBackupFile(backupPath, new Uint8Array(await this.deps.vault.readBinary(operation.path)));
+          action.localBackups.push({ backupPath, path: operation.path, state: { ...localEntry } });
+        }
+      }
+    }
+
+    this.deps.logger.log({
+      level: "info",
+      message: `Prepared rollback data for force ${direction}`,
+      operation: "manual",
+    });
+    return action;
+  }
+
+  private async undoPush(action: ManualActionRecord): Promise<void> {
+    for (const path of action.createdRemotePaths) {
+      await this.deps.remote.deleteObject(path);
+    }
+    for (const backup of action.remoteBackups) {
+      const body = await this.deps.vault.readBinary(backup.backupPath);
+      await this.deps.remote.uploadObject(backup.path, body, backup.manifestEntry.mtime);
+    }
+    await this.deps.remote.putManifest(action.remoteManifestBefore);
+  }
+
+  private async undoPull(action: ManualActionRecord): Promise<void> {
+    for (const path of action.createdLocalPaths) {
+      await this.safeDeleteLocal(path);
+    }
+    for (const backup of action.localBackups) {
+      await this.ensureFolders(backup.path);
+      this.markInternalMutation(backup.path);
+      await this.deps.vault.writeBinary(backup.path, await this.deps.vault.readBinary(backup.backupPath));
+    }
+  }
+
+  private async cleanupManualAction(action: ManualActionRecord): Promise<void> {
+    const root = manualActionRootPath(action.id);
+    const files = await this.deps.vault.listFiles();
+    for (const file of files.filter((entry) => entry.path.startsWith(`${root}/`)).sort((left, right) => right.path.localeCompare(left.path))) {
+      await this.deps.vault.delete(file.path);
+    }
+    await this.deps.actionStore.clear();
+  }
+
+  private async writeBackupFile(path: string, body: Uint8Array): Promise<void> {
+    await this.ensureFolders(path);
+    this.markInternalMutation(path);
+    await this.deps.vault.writeBinary(
+      path,
+      body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer,
+    );
+  }
+
+  private markInternalMutation(path: string): void {
+    this.internalMutationIgnores.set(normalizePathSlashes(path), Date.now() + 15000);
+  }
+
+  private shouldIgnoreInternalMutation(path: string): boolean {
+    const now = Date.now();
+    for (const [trackedPath, expiresAt] of this.internalMutationIgnores.entries()) {
+      if (expiresAt <= now) {
+        this.internalMutationIgnores.delete(trackedPath);
+      }
+    }
+    const normalized = normalizePathSlashes(path);
+    const expiresAt = this.internalMutationIgnores.get(normalized);
+    if (!expiresAt) {
+      return false;
+    }
+    if (expiresAt <= now) {
+      this.internalMutationIgnores.delete(normalized);
+      return false;
+    }
+    return true;
   }
 
   private async createSafetySnapshot(path: string, reason: string): Promise<void> {

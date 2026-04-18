@@ -18,7 +18,9 @@
 
 ## Manual Verification
 
-- Test `Push`, `Fetch`, and `Sync` from the command palette and ribbon.
+- Test `Push`, `Pull`, `Sync`, and `Undo` from the command palette and ribbon.
+- Confirm manual `Push` shows a preview, rewrites S3 to match local state, and `Undo` restores the previous remote state.
+- Confirm manual `Pull` shows a preview, rewrites local state to match S3, and `Undo` restores the previous local state.
 - Test file create, edit, rename, move, and delete.
 - Test folder create, rename, move, and delete.
 - Test `.obsidian` sync on and off.

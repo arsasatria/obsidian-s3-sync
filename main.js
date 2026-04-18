@@ -28912,6 +28912,13 @@ function safetySnapshotPath(originalPath, reason, timestamp) {
   const normalized = normalizePathSlashes(originalPath);
   return `.s3sync-safety/${normalized}.snapshot-${reason}-${timestamp}`;
 }
+function manualActionBackupPath(actionId, side, originalPath) {
+  const normalized = normalizePathSlashes(originalPath);
+  return `.s3sync-actions/${actionId}/${side}/${normalized}`;
+}
+function manualActionRootPath(actionId) {
+  return `.s3sync-actions/${actionId}`;
+}
 
 // src/s3/store.ts
 function describeError(action, error, path) {
@@ -29303,6 +29310,7 @@ var DEFAULT_EXCLUDES = [
   ".obsidian/workspace.json",
   ".obsidian/workspace-mobile.json",
   ".trash/**",
+  ".s3sync-actions/**",
   ".s3sync-safety/**"
 ];
 var DEFAULT_SETTINGS = {
@@ -29371,6 +29379,31 @@ var ObsidianLastSyncStore = class {
   }
   async save(state) {
     await this.adapter.write(this.path, JSON.stringify(state, null, 2));
+  }
+};
+
+// src/obsidian/manual-action-store.ts
+init_esbuild_polyfills();
+var ObsidianManualActionStore = class {
+  constructor(adapter, path) {
+    this.adapter = adapter;
+    this.path = path;
+  }
+  async load() {
+    const exists = await this.adapter.exists(this.path);
+    if (!exists) {
+      return null;
+    }
+    return JSON.parse(await this.adapter.read(this.path));
+  }
+  async save(record) {
+    await this.adapter.write(this.path, JSON.stringify(record, null, 2));
+  }
+  async clear() {
+    const exists = await this.adapter.exists(this.path);
+    if (exists) {
+      await this.adapter.remove(this.path);
+    }
   }
 };
 
@@ -29528,8 +29561,9 @@ var StatusManager = class {
   openMenu(event) {
     const menu = new import_obsidian6.Menu();
     menu.addItem((item) => item.setTitle("Sync now").setIcon("refresh-cw").onClick(() => this.actions.sync()));
-    menu.addItem((item) => item.setTitle("Push local changes").setIcon("upload").onClick(() => this.actions.push()));
-    menu.addItem((item) => item.setTitle("Fetch remote changes").setIcon("download").onClick(() => this.actions.pull()));
+    menu.addItem((item) => item.setTitle("Force push local -> S3").setIcon("upload").onClick(() => this.actions.push()));
+    menu.addItem((item) => item.setTitle("Force pull S3 -> local").setIcon("download").onClick(() => this.actions.pull()));
+    menu.addItem((item) => item.setTitle("Undo last push/pull").setIcon("rotate-ccw").onClick(() => this.actions.undo()));
     menu.addSeparator();
     menu.addItem((item) => item.setTitle("Open live monitor").setIcon("activity").onClick(() => this.actions.openMonitor()));
     menu.addItem((item) => item.setTitle("Open sync log").setIcon("list").onClick(() => this.actions.openLog()));
@@ -29805,6 +29839,7 @@ var SyncOrchestrator = class {
     this.deps = deps;
     this.differ = new ThreeWayDiffer();
     this.queuedPaths = /* @__PURE__ */ new Set();
+    this.internalMutationIgnores = /* @__PURE__ */ new Map();
     this.running = false;
     this.excludeFilter = new ExcludeFilter(this.buildExcludePatterns(deps.settings));
     this.resolver = new ConflictResolver(deps.settings.defaultConflictRule, deps.deviceId, deps.conflictPrompt);
@@ -29847,10 +29882,10 @@ var SyncOrchestrator = class {
         operation: "manifest"
       });
       const lastSyncMap = new Map(Object.entries(lastSync.files));
-      const operations = this.filterOperations(
+      const operations = (options?.force ? this.buildForceOperations(local, remote, options?.direction ?? "bidirectional") : this.filterOperations(
         this.differ.diff(local, lastSyncMap, remote).filter((operation2) => operation2.type !== "noop"),
         options?.direction ?? "bidirectional"
-      );
+      )).filter((operation2) => operation2.type !== "noop");
       const summary = summarize(operations);
       if (options?.dryRun) {
         this.deps.logger.log({
@@ -29861,7 +29896,14 @@ var SyncOrchestrator = class {
         this.deps.status.setStatus(summary.conflict > 0 ? "conflict" : "idle", "Dry run completed");
         return { applied: false, operations, summary };
       }
-      const updatedManifest = await this.executeOperations(operations, local, remoteResult.manifest, options?.direction ?? "bidirectional");
+      const manualAction = options?.force && (options?.direction === "push" || options?.direction === "pull") ? await this.captureManualActionBackup(options.direction, operations, local, remote, lastSync, remoteResult.manifest) : null;
+      const updatedManifest = await this.executeOperations(
+        operations,
+        local,
+        remoteResult.manifest,
+        options?.direction ?? "bidirectional",
+        options?.force ?? false
+      );
       this.deps.logger.log({
         level: "info",
         message: "Uploading updated remote manifest",
@@ -29873,6 +29915,9 @@ var SyncOrchestrator = class {
         remote_manifest_etag: remoteManifestEtag,
         synced_at: (/* @__PURE__ */ new Date()).toISOString()
       });
+      if (manualAction) {
+        await this.deps.actionStore.save(manualAction);
+      }
       this.deps.status.setStatus(summary.conflict > 0 ? "conflict" : "idle", "Sync complete");
       this.deps.logger.log({
         level: "info",
@@ -29900,6 +29945,9 @@ var SyncOrchestrator = class {
     if (this.excludeFilter.isExcluded(path)) {
       return;
     }
+    if (this.shouldIgnoreInternalMutation(path)) {
+      return;
+    }
     this.queuedPaths.add(path);
     this.deps.logger.log({
       level: "info",
@@ -29910,6 +29958,9 @@ var SyncOrchestrator = class {
     void this.flushQueue();
   }
   queueFileDelete(path) {
+    if (this.shouldIgnoreInternalMutation(path)) {
+      return;
+    }
     this.queuedPaths.add(path);
     this.deps.logger.log({
       level: "info",
@@ -29920,6 +29971,9 @@ var SyncOrchestrator = class {
     void this.flushQueue();
   }
   queueFileRename(oldPath, newPath) {
+    if (this.shouldIgnoreInternalMutation(oldPath) || this.shouldIgnoreInternalMutation(newPath)) {
+      return;
+    }
     this.queuedPaths.add(oldPath);
     this.queuedPaths.add(newPath);
     this.deps.logger.log({
@@ -29932,6 +29986,41 @@ var SyncOrchestrator = class {
   }
   async testConnection() {
     await this.deps.remote.testConnection();
+  }
+  async undoLastManualAction() {
+    const action = await this.deps.actionStore.load();
+    if (!action) {
+      return null;
+    }
+    if (this.running) {
+      throw new Error("A sync is already running");
+    }
+    this.running = true;
+    this.deps.status.setStatus("syncing", `Undoing last ${action.type}`);
+    try {
+      if (action.type === "push") {
+        await this.undoPush(action);
+      } else {
+        await this.undoPull(action);
+      }
+      await this.deps.lastSyncStore.save(action.lastSyncBefore);
+      await this.cleanupManualAction(action);
+      this.deps.status.setStatus("idle", `Undo ${action.type} complete`);
+      this.deps.logger.log({
+        level: "info",
+        message: `Undo ${action.type} completed`,
+        operation: "manual"
+      });
+      return action;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.logger.log({ level: "error", message: `Undo ${action.type} failed: ${message}`, operation: "manual" });
+      this.deps.status.setStatus("error", message);
+      throw error;
+    } finally {
+      this.running = false;
+      this.deps.status.setProgress(0, 0);
+    }
   }
   async flushQueue() {
     if (this.running || this.queuedPaths.size === 0) {
@@ -29952,7 +30041,7 @@ var SyncOrchestrator = class {
     }
     return [...settings.excludePatterns];
   }
-  async executeOperations(operations, local, remoteManifest, direction) {
+  async executeOperations(operations, local, remoteManifest, direction, force) {
     const manifestFiles = { ...remoteManifest.files };
     const remoteMap = new Map(Object.entries(remoteManifest.files));
     let completed = 0;
@@ -29988,6 +30077,9 @@ var SyncOrchestrator = class {
           continue;
         }
         if (operation2.type === "conflict") {
+          if (force) {
+            throw new Error(`Force ${direction} should not produce conflicts (${operation2.path})`);
+          }
           const resolution = await this.resolver.resolve({
             path: operation2.path,
             lastSync: void 0,
@@ -30127,6 +30219,7 @@ var SyncOrchestrator = class {
     const rawBytes = new Uint8Array(remoteObject.body);
     const restored = remoteMeta?.encoding === "gzip" ? await gzipDecompress(rawBytes) : rawBytes;
     await this.ensureFolders(path);
+    this.markInternalMutation(path);
     await this.deps.vault.writeBinary(
       path,
       restored.buffer.slice(restored.byteOffset, restored.byteOffset + restored.byteLength)
@@ -30147,6 +30240,7 @@ var SyncOrchestrator = class {
     try {
       const exists = await this.deps.vault.exists(path);
       if (exists) {
+        this.markInternalMutation(path);
         await this.deps.vault.delete(path);
       }
     } catch (error) {
@@ -30172,6 +30266,178 @@ var SyncOrchestrator = class {
     return operations.filter(
       (operation2) => operation2.type === "download" || operation2.type === "delete-local" || operation2.type === "conflict"
     );
+  }
+  buildForceOperations(local, remote, direction) {
+    if (direction === "bidirectional") {
+      return this.differ.diff(local, /* @__PURE__ */ new Map(), remote).filter((operation2) => operation2.type !== "noop");
+    }
+    if (direction === "push") {
+      const operations = [];
+      const paths = /* @__PURE__ */ new Set([...local.keys(), ...remote.keys()]);
+      for (const path of [...paths].sort()) {
+        const localEntry = local.get(path);
+        const remoteEntry = remote.get(path);
+        const remoteExists = Boolean(remoteEntry && !remoteEntry.deleted);
+        if (localEntry) {
+          if (!remoteExists || remoteEntry?.sha256 !== localEntry.sha256) {
+            operations.push({ type: "upload", path });
+          }
+          continue;
+        }
+        if (remoteExists) {
+          operations.push({ type: "delete-remote", path });
+        }
+      }
+      return operations;
+    }
+    if (direction === "pull") {
+      const operations = [];
+      const paths = /* @__PURE__ */ new Set([...local.keys(), ...remote.keys()]);
+      for (const path of [...paths].sort()) {
+        const localEntry = local.get(path);
+        const remoteEntry = remote.get(path);
+        const remoteExists = Boolean(remoteEntry && !remoteEntry.deleted);
+        if (remoteExists) {
+          if (!localEntry || localEntry.sha256 !== remoteEntry?.sha256) {
+            operations.push({ type: "download", path });
+          }
+          continue;
+        }
+        if (localEntry) {
+          operations.push({ type: "delete-local", path });
+        }
+      }
+      return operations;
+    }
+    return [];
+  }
+  async captureManualActionBackup(direction, operations, local, remote, lastSync, remoteManifest) {
+    const previous = await this.deps.actionStore.load();
+    if (previous) {
+      await this.cleanupManualAction(previous);
+    }
+    const actionId = globalThis.crypto.randomUUID();
+    const action = {
+      id: actionId,
+      type: direction,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      createdLocalPaths: [],
+      createdRemotePaths: [],
+      localBackups: [],
+      remoteBackups: [],
+      lastSyncBefore: structuredClone(lastSync),
+      remoteManifestBefore: structuredClone(remoteManifest)
+    };
+    if (direction === "push") {
+      for (const operation2 of operations) {
+        if (operation2.type === "upload") {
+          const remoteEntry = remote.get(operation2.path);
+          if (!remoteEntry || remoteEntry.deleted) {
+            action.createdRemotePaths.push(operation2.path);
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "remote", operation2.path);
+          await this.writeBackupFile(backupPath, new Uint8Array((await this.deps.remote.downloadObject(operation2.path)).body));
+          action.remoteBackups.push({ backupPath, manifestEntry: { ...remoteEntry }, path: operation2.path });
+          continue;
+        }
+        if (operation2.type === "delete-remote") {
+          const remoteEntry = remote.get(operation2.path);
+          if (!remoteEntry || remoteEntry.deleted) {
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "remote", operation2.path);
+          await this.writeBackupFile(backupPath, new Uint8Array((await this.deps.remote.downloadObject(operation2.path)).body));
+          action.remoteBackups.push({ backupPath, manifestEntry: { ...remoteEntry }, path: operation2.path });
+        }
+      }
+    } else {
+      for (const operation2 of operations) {
+        if (operation2.type === "download") {
+          const localEntry = local.get(operation2.path);
+          if (!localEntry) {
+            action.createdLocalPaths.push(operation2.path);
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "local", operation2.path);
+          await this.writeBackupFile(backupPath, new Uint8Array(await this.deps.vault.readBinary(operation2.path)));
+          action.localBackups.push({ backupPath, path: operation2.path, state: { ...localEntry } });
+          continue;
+        }
+        if (operation2.type === "delete-local") {
+          const localEntry = local.get(operation2.path);
+          if (!localEntry) {
+            continue;
+          }
+          const backupPath = manualActionBackupPath(actionId, "local", operation2.path);
+          await this.writeBackupFile(backupPath, new Uint8Array(await this.deps.vault.readBinary(operation2.path)));
+          action.localBackups.push({ backupPath, path: operation2.path, state: { ...localEntry } });
+        }
+      }
+    }
+    this.deps.logger.log({
+      level: "info",
+      message: `Prepared rollback data for force ${direction}`,
+      operation: "manual"
+    });
+    return action;
+  }
+  async undoPush(action) {
+    for (const path of action.createdRemotePaths) {
+      await this.deps.remote.deleteObject(path);
+    }
+    for (const backup of action.remoteBackups) {
+      const body = await this.deps.vault.readBinary(backup.backupPath);
+      await this.deps.remote.uploadObject(backup.path, body, backup.manifestEntry.mtime);
+    }
+    await this.deps.remote.putManifest(action.remoteManifestBefore);
+  }
+  async undoPull(action) {
+    for (const path of action.createdLocalPaths) {
+      await this.safeDeleteLocal(path);
+    }
+    for (const backup of action.localBackups) {
+      await this.ensureFolders(backup.path);
+      this.markInternalMutation(backup.path);
+      await this.deps.vault.writeBinary(backup.path, await this.deps.vault.readBinary(backup.backupPath));
+    }
+  }
+  async cleanupManualAction(action) {
+    const root = manualActionRootPath(action.id);
+    const files = await this.deps.vault.listFiles();
+    for (const file of files.filter((entry) => entry.path.startsWith(`${root}/`)).sort((left, right) => right.path.localeCompare(left.path))) {
+      await this.deps.vault.delete(file.path);
+    }
+    await this.deps.actionStore.clear();
+  }
+  async writeBackupFile(path, body) {
+    await this.ensureFolders(path);
+    this.markInternalMutation(path);
+    await this.deps.vault.writeBinary(
+      path,
+      body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+    );
+  }
+  markInternalMutation(path) {
+    this.internalMutationIgnores.set(normalizePathSlashes(path), Date.now() + 15e3);
+  }
+  shouldIgnoreInternalMutation(path) {
+    const now = Date.now();
+    for (const [trackedPath, expiresAt2] of this.internalMutationIgnores.entries()) {
+      if (expiresAt2 <= now) {
+        this.internalMutationIgnores.delete(trackedPath);
+      }
+    }
+    const normalized = normalizePathSlashes(path);
+    const expiresAt = this.internalMutationIgnores.get(normalized);
+    if (!expiresAt) {
+      return false;
+    }
+    if (expiresAt <= now) {
+      this.internalMutationIgnores.delete(normalized);
+      return false;
+    }
+    return true;
   }
   async createSafetySnapshot(path, reason) {
     if (!this.deps.settings.createSafetySnapshots) {
@@ -30269,7 +30535,7 @@ var S3SyncSettingTab = class extends import_obsidian7.PluginSettingTab {
       text: `Current profile: ${this.detectPreset(settings)}`
     });
     const quickSection = this.createSection(containerEl, "Quick Actions", "Use these buttons for everyday sync tasks.");
-    new import_obsidian7.Setting(quickSection).setName("Sync now").setDesc("Run a one-time push, fetch, or full sync.").addButton((button) => button.setButtonText("Push").onClick(async () => this.plugin.runPush())).addButton((button) => button.setButtonText("Fetch").onClick(async () => this.plugin.runPull())).addButton((button) => button.setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync()));
+    new import_obsidian7.Setting(quickSection).setName("Sync now").setDesc("Run a one-time push, pull, or full sync.").addButton((button) => button.setButtonText("Push").onClick(async () => this.plugin.runPush())).addButton((button) => button.setButtonText("Pull").onClick(async () => this.plugin.runPull())).addButton((button) => button.setButtonText("Undo").onClick(async () => this.plugin.undoLastManualAction())).addButton((button) => button.setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync()));
     new import_obsidian7.Setting(quickSection).setName("Open tools").setDesc("Open the monitor, open the log, or verify the connection.").addButton((button) => button.setButtonText("Test connection").onClick(async () => this.plugin.testConnection())).addButton((button) => button.setButtonText("Monitor").onClick(async () => this.plugin.openMonitorView())).addButton((button) => button.setButtonText("Log").onClick(async () => this.plugin.openLogView()));
     const presetSection = this.createSection(containerEl, "Profiles", "Choose a ready-made profile, then fine-tune only if necessary.");
     const presetGrid = presetSection.createDiv({ cls: "s3-sync-preset-grid" });
@@ -30619,10 +30885,11 @@ var ConflictModal = class extends import_obsidian8.Modal {
 init_esbuild_polyfills();
 var import_obsidian9 = require("obsidian");
 var DryRunModal = class extends import_obsidian9.Modal {
-  constructor(app, operations, summary) {
+  constructor(app, operations, summary, options) {
     super(app);
     this.operations = operations;
     this.summary = summary;
+    this.options = options;
   }
   openAndWait() {
     this.open();
@@ -30634,9 +30901,9 @@ var DryRunModal = class extends import_obsidian9.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("s3-sync-dry-run-modal");
-    contentEl.createEl("h2", { text: "Dry run preview" });
+    contentEl.createEl("h2", { text: this.options?.title ?? "Dry run preview" });
     contentEl.createEl("p", {
-      text: `${this.summary.upload} upload, ${this.summary.download} download, ${this.summary.deleteLocal} delete local, ${this.summary.deleteRemote} delete remote, ${this.summary.conflict} conflict`
+      text: this.options?.description ?? `${this.summary.upload} upload, ${this.summary.download} download, ${this.summary.deleteLocal} delete local, ${this.summary.deleteRemote} delete remote, ${this.summary.conflict} conflict`
     });
     const table = contentEl.createEl("table", { cls: "s3-sync-table" });
     const header = table.createTHead().insertRow();
@@ -30653,7 +30920,7 @@ var DryRunModal = class extends import_obsidian9.Modal {
       this.resolvePromise(false);
       this.close();
     });
-    new import_obsidian9.ButtonComponent(actions).setButtonText("Run Sync").setCta().onClick(() => {
+    new import_obsidian9.ButtonComponent(actions).setButtonText(this.options?.confirmText ?? "Run Sync").setCta().onClick(() => {
       this.resolvePromise(true);
       this.close();
     });
@@ -30694,8 +30961,9 @@ var SyncLogView = class extends import_obsidian10.ItemView {
     });
     const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new import_obsidian10.ButtonComponent(actions).setButtonText("Push").onClick(async () => this.actions.push());
-    new import_obsidian10.ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.actions.pull());
+    new import_obsidian10.ButtonComponent(actions).setButtonText("Pull").onClick(async () => this.actions.pull());
     new import_obsidian10.ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.actions.sync());
+    new import_obsidian10.ButtonComponent(actions).setButtonText("Undo").onClick(async () => this.actions.undo());
     new import_obsidian10.ButtonComponent(actions).setButtonText("Clear log").onClick(() => {
       this.clearLogs();
       this.render();
@@ -30776,8 +31044,9 @@ var SyncMonitorView = class extends import_obsidian11.ItemView {
     );
     const actions = contentEl.createDiv({ cls: "s3-sync-action-row" });
     new import_obsidian11.ButtonComponent(actions).setButtonText("Push").onClick(async () => this.plugin.runPush());
-    new import_obsidian11.ButtonComponent(actions).setButtonText("Fetch").onClick(async () => this.plugin.runPull());
+    new import_obsidian11.ButtonComponent(actions).setButtonText("Pull").onClick(async () => this.plugin.runPull());
     new import_obsidian11.ButtonComponent(actions).setButtonText("Sync").setCta().onClick(async () => this.plugin.runSync());
+    new import_obsidian11.ButtonComponent(actions).setButtonText("Undo").onClick(async () => this.plugin.undoLastManualAction());
     const tableCard = contentEl.createDiv({ cls: "s3-sync-table-card" });
     tableCard.createEl("h3", { text: "Recent Activity" });
     const tableWrap = tableCard.createDiv({ cls: "s3-sync-table-wrap" });
@@ -30881,7 +31150,8 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
         {
           pull: () => this.runPull(),
           push: () => this.runPush(),
-          sync: () => this.runSync()
+          sync: () => this.runSync(),
+          undo: () => this.undoLastManualAction()
         }
       )
     );
@@ -30894,7 +31164,8 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
       openMonitor: () => void this.openMonitorView(),
       pull: () => void this.runPull(),
       push: () => void this.runPush(),
-      sync: () => void this.runSync()
+      sync: () => void this.runSync(),
+      undo: () => void this.undoLastManualAction()
     });
     this.addRibbonIcon("activity", "S3 Sync: Live monitor", () => void this.openMonitorView());
     this.createOrchestrator();
@@ -30911,13 +31182,18 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
     });
     this.addCommand({
       id: "s3-sync-push-now",
-      name: "Push local changes to S3",
+      name: "Push local state to S3",
       callback: () => void this.runPush()
     });
     this.addCommand({
       id: "s3-sync-fetch-now",
-      name: "Fetch remote changes from S3",
+      name: "Pull remote state from S3",
       callback: () => void this.runPull()
+    });
+    this.addCommand({
+      id: "s3-sync-undo-last-manual-action",
+      name: "Undo last force push/pull",
+      callback: () => void this.undoLastManualAction()
     });
     this.addCommand({
       id: "s3-sync-open-monitor",
@@ -31096,11 +31372,32 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
   async runPush(options) {
     this.createOrchestrator();
     const isManual = !options?.silent;
-    const liveNotice = isManual ? new import_obsidian13.Notice("S3 Sync: Pushing local changes...", 0) : null;
+    const forceMode = isManual;
+    const liveNotice = isManual ? new import_obsidian13.Notice("S3 Sync: Preparing force push...", 0) : null;
     try {
+      if (forceMode) {
+        const preview = await this.orchestrator.triggerFullSync({
+          direction: "push",
+          dryRun: true,
+          force: forceMode,
+          notifyErrors: isManual,
+          reason: options?.reason ?? "manual-push"
+        });
+        const confirmed = await new DryRunModal(this.app, preview.operations, preview.summary, {
+          confirmText: "Force Push",
+          description: "Replace S3 with the current local vault state. A rollback snapshot will be created first.",
+          title: "Force push preview"
+        }).openAndWait();
+        if (!confirmed) {
+          liveNotice?.hide();
+          return;
+        }
+        liveNotice?.setMessage("S3 Sync: Force pushing local vault to S3...");
+      }
       const result = await this.orchestrator.triggerFullSync({
         direction: "push",
         dryRun: options?.dryRun,
+        force: forceMode,
         notifyErrors: isManual,
         reason: options?.reason ?? "manual-push"
       });
@@ -31110,10 +31407,12 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
         await this.saveSettings();
       }
       if (isManual && !options?.dryRun) {
-        liveNotice?.setMessage(`S3 Push complete: ${result.summary.upload} upload, ${result.summary.conflict} guarded conflict`);
+        liveNotice?.setMessage(
+          `S3 Push complete: ${result.summary.upload} upload, ${result.summary.deleteRemote} remote delete, undo ready`
+        );
         window.setTimeout(() => liveNotice?.hide(), 2500);
       } else if (this.settings.notifyOnSuccess && !options?.dryRun) {
-        new import_obsidian13.Notice(`S3 Push complete: ${result.summary.upload} upload, ${result.summary.conflict} guarded conflict`);
+        new import_obsidian13.Notice(`S3 Push complete: ${result.summary.upload} upload, ${result.summary.deleteRemote} remote delete, undo ready`);
       }
     } catch (error) {
       await this.trackAutomaticFailure(options?.reason);
@@ -31128,11 +31427,32 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
   async runPull(options) {
     this.createOrchestrator();
     const isManual = !options?.silent;
-    const liveNotice = isManual ? new import_obsidian13.Notice("S3 Sync: Fetching remote changes...", 0) : null;
+    const forceMode = isManual;
+    const liveNotice = isManual ? new import_obsidian13.Notice("S3 Sync: Preparing force pull...", 0) : null;
     try {
+      if (forceMode) {
+        const preview = await this.orchestrator.triggerFullSync({
+          direction: "pull",
+          dryRun: true,
+          force: forceMode,
+          notifyErrors: isManual,
+          reason: options?.reason ?? "manual-pull"
+        });
+        const confirmed = await new DryRunModal(this.app, preview.operations, preview.summary, {
+          confirmText: "Force Pull",
+          description: "Replace the local vault with the latest S3 state. A rollback snapshot will be created first.",
+          title: "Force pull preview"
+        }).openAndWait();
+        if (!confirmed) {
+          liveNotice?.hide();
+          return;
+        }
+        liveNotice?.setMessage("S3 Sync: Force pulling S3 into local vault...");
+      }
       const result = await this.orchestrator.triggerFullSync({
         direction: "pull",
         dryRun: options?.dryRun,
+        force: forceMode,
         notifyErrors: isManual,
         reason: options?.reason ?? "manual-pull"
       });
@@ -31142,20 +31462,40 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
         await this.saveSettings();
       }
       if (isManual && !options?.dryRun) {
-        liveNotice?.setMessage(`S3 Fetch complete: ${result.summary.download} download, ${result.summary.conflict} guarded conflict`);
+        liveNotice?.setMessage(
+          `S3 Pull complete: ${result.summary.download} download, ${result.summary.deleteLocal} local delete, undo ready`
+        );
         window.setTimeout(() => liveNotice?.hide(), 2500);
       } else if (this.settings.notifyOnSuccess && !options?.dryRun) {
-        new import_obsidian13.Notice(`S3 Fetch complete: ${result.summary.download} download, ${result.summary.conflict} guarded conflict`);
+        new import_obsidian13.Notice(`S3 Pull complete: ${result.summary.download} download, ${result.summary.deleteLocal} local delete, undo ready`);
       }
     } catch (error) {
       await this.trackAutomaticFailure(options?.reason);
       if (isManual) {
-        liveNotice?.setMessage(`S3 Fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+        liveNotice?.setMessage(`S3 Pull failed: ${error instanceof Error ? error.message : String(error)}`);
         window.setTimeout(() => liveNotice?.hide(), 4e3);
       }
       throw error;
     }
     this.refreshMonitorViews();
+  }
+  async undoLastManualAction() {
+    this.createOrchestrator();
+    const liveNotice = new import_obsidian13.Notice("S3 Sync: Restoring last manual action...", 0);
+    try {
+      const action = await this.orchestrator.undoLastManualAction();
+      if (!action) {
+        liveNotice.setMessage("S3 Sync: No manual push/pull to undo");
+        window.setTimeout(() => liveNotice.hide(), 2500);
+        return;
+      }
+      liveNotice.setMessage(`S3 Sync: Undo ${action.type} complete`);
+      window.setTimeout(() => liveNotice.hide(), 2500);
+    } catch (error) {
+      liveNotice.setMessage(`S3 Sync: Undo failed: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => liveNotice.hide(), 4e3);
+      throw error;
+    }
   }
   appendLogs(logs) {
     this.settings.logs = logs;
@@ -31177,6 +31517,10 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
       this.app.vault.adapter,
       `${this.app.vault.configDir}/plugins/${this.manifest.id}/last-sync.json`
     );
+    const actionStore = new ObsidianManualActionStore(
+      this.app.vault.adapter,
+      `${this.app.vault.configDir}/plugins/${this.manifest.id}/last-manual-action.json`
+    );
     const logger2 = new SettingsLogger(
       () => this.settings,
       (logs) => {
@@ -31188,6 +31532,7 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
     const vault = new ObsidianVaultPort(this.app.vault);
     const notifier = new ObsidianNotificationPort();
     this.orchestrator = new SyncOrchestrator({
+      actionStore,
       conflictPrompt: async (context) => new ConflictModal(this.app, context).openAndWait(),
       deviceId: this.settings.deviceId,
       lastSyncStore,

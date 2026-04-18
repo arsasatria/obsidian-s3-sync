@@ -52,4 +52,5 @@ export interface SyncExecutionOptions {
   dryRun?: boolean;
   notifyErrors?: boolean;
   reason?: string;
+  force?: boolean;
 }

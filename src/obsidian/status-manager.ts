@@ -12,6 +12,7 @@ export class StatusManager implements StatusPort {
       sync: () => void;
       push: () => void;
       pull: () => void;
+      undo: () => void;
       openLog: () => void;
       openMonitor: () => void;
     },
@@ -58,8 +59,9 @@ export class StatusManager implements StatusPort {
   private openMenu(event: MouseEvent): void {
     const menu = new Menu();
     menu.addItem((item) => item.setTitle("Sync now").setIcon("refresh-cw").onClick(() => this.actions.sync()));
-    menu.addItem((item) => item.setTitle("Push local changes").setIcon("upload").onClick(() => this.actions.push()));
-    menu.addItem((item) => item.setTitle("Fetch remote changes").setIcon("download").onClick(() => this.actions.pull()));
+    menu.addItem((item) => item.setTitle("Force push local -> S3").setIcon("upload").onClick(() => this.actions.push()));
+    menu.addItem((item) => item.setTitle("Force pull S3 -> local").setIcon("download").onClick(() => this.actions.pull()));
+    menu.addItem((item) => item.setTitle("Undo last push/pull").setIcon("rotate-ccw").onClick(() => this.actions.undo()));
     menu.addSeparator();
     menu.addItem((item) => item.setTitle("Open live monitor").setIcon("activity").onClick(() => this.actions.openMonitor()));
     menu.addItem((item) => item.setTitle("Open sync log").setIcon("list").onClick(() => this.actions.openLog()));
