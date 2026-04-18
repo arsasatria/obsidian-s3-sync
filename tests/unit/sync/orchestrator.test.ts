@@ -492,6 +492,60 @@ describe("SyncOrchestrator", () => {
     expect(logger.entries.some((entry) => entry.message.includes("Recovered gzip-compressed text using byte signature"))).toBe(true);
   });
 
+  it("falls back to plain text when gzip metadata is stale", async () => {
+    const originalText = "# Atlas Parenting\n\nPlain text body.";
+    const raw = new TextEncoder().encode(originalText);
+    const staleEncodingRemote = Object.assign(new FakeRemoteStore(), remote, {
+      async listFiles() {
+        return {
+          "01 Atlas/Atlas - Parenting.md": {
+            deleted: false,
+            etag: "etag-parenting",
+            mtime: 3000,
+            sha256: "remote-hash",
+            size: raw.byteLength,
+            encoding: "gzip",
+          },
+        };
+      },
+      async getManifest() {
+        return {
+          etag: "etag-1",
+          manifest: {
+            device_id: "device-b",
+            files: {
+              "01 Atlas/Atlas - Parenting.md": {
+                deleted: false,
+                etag: "etag-parenting",
+                mtime: 3000,
+                sha256: "remote-hash",
+                size: raw.byteLength,
+                encoding: "gzip",
+              },
+            },
+            generated_at: new Date().toISOString(),
+            vault_name: "MockVault",
+            version: "1",
+          },
+        };
+      },
+      async downloadObject() {
+        return {
+          body: raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer,
+          etag: "etag-parenting",
+        };
+      },
+    }) as RemoteStore;
+    const orchestrator = createOrchestrator({}, staleEncodingRemote);
+
+    await orchestrator.triggerFullSync({ direction: "pull" });
+
+    const restored = new TextDecoder().decode(await vault.readBinary("01 Atlas/Atlas - Parenting.md"));
+    expect(restored).toBe(originalText);
+    expect(status.states.at(-1)?.status).toBe("idle");
+    expect(logger.entries.some((entry) => entry.message.includes("payload was plain text. Falling back to identity"))).toBe(true);
+  });
+
   function createOrchestrator(overrides?: Partial<PluginSettings>, remoteStore: RemoteStore = remote): SyncOrchestrator {
     return new SyncOrchestrator({
       deviceId: "device-a",

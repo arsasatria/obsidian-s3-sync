@@ -30290,7 +30290,40 @@ var SyncOrchestrator = class {
       const remoteObject = await this.deps.remote.downloadObject(path);
       const rawBytes = new Uint8Array(remoteObject.body);
       const shouldDecompress = remoteMeta?.encoding === "gzip" || isCompressibleTextPath(path) && isGzipData(rawBytes);
-      const restored = shouldDecompress ? await gzipDecompress(rawBytes) : rawBytes;
+      let restored = rawBytes;
+      if (shouldDecompress) {
+        try {
+          restored = await gzipDecompress(rawBytes);
+        } catch (error) {
+          const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+          const canFallbackToPlainText = isCompressibleTextPath(path) && remoteMeta?.encoding === "gzip" && !isGzipData(rawBytes) && (message.includes("incorrect header check") || message.includes("invalid"));
+          if (!canFallbackToPlainText) {
+            throw error;
+          }
+          restored = rawBytes;
+          manifestFiles[path] = {
+            ...manifestFiles[path] ?? {
+              deleted: false,
+              etag: remoteObject.etag,
+              mtime: Date.now(),
+              sha256: "",
+              size: rawBytes.byteLength
+            },
+            deleted: false,
+            encoding: "identity",
+            etag: remoteObject.etag,
+            mtime: manifestFiles[path]?.mtime ?? Date.now(),
+            sha256: manifestFiles[path]?.sha256 ?? "",
+            size: rawBytes.byteLength
+          };
+          this.deps.logger.log({
+            level: "warning",
+            message: "Remote encoding metadata said gzip, but payload was plain text. Falling back to identity.",
+            operation: "download",
+            path
+          });
+        }
+      }
       if (remoteMeta?.encoding !== "gzip" && shouldDecompress) {
         this.deps.logger.log({
           level: "warning",
