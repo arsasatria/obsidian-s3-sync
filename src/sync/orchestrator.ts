@@ -572,7 +572,7 @@ export class SyncOrchestrator {
             size: rawBytes.byteLength,
           };
           this.deps.logger.log({
-            level: "warning",
+            level: "info",
             message: "Remote encoding metadata said gzip, but payload was plain text. Falling back to identity.",
             operation: "download",
             path,
@@ -774,7 +774,11 @@ export class SyncOrchestrator {
             continue;
           }
           const backupPath = manualActionBackupPath(actionId, "remote", operation.path);
-          await this.writeBackupFile(backupPath, new Uint8Array((await this.deps.remote.downloadObject(operation.path)).body));
+          const body = await this.readRemoteBackupBody(operation.path, action.remoteManifestBefore);
+          if (!body) {
+            continue;
+          }
+          await this.writeBackupFile(backupPath, body);
           action.remoteBackups.push({ backupPath, manifestEntry: { ...remoteEntry }, path: operation.path });
           continue;
         }
@@ -784,7 +788,11 @@ export class SyncOrchestrator {
             continue;
           }
           const backupPath = manualActionBackupPath(actionId, "remote", operation.path);
-          await this.writeBackupFile(backupPath, new Uint8Array((await this.deps.remote.downloadObject(operation.path)).body));
+          const body = await this.readRemoteBackupBody(operation.path, action.remoteManifestBefore);
+          if (!body) {
+            continue;
+          }
+          await this.writeBackupFile(backupPath, body);
           action.remoteBackups.push({ backupPath, manifestEntry: { ...remoteEntry }, path: operation.path });
         }
       }
@@ -819,6 +827,38 @@ export class SyncOrchestrator {
       operation: "manual",
     });
     return action;
+  }
+
+  private async readRemoteBackupBody(path: string, manifestBefore: RemoteManifest): Promise<Uint8Array | null> {
+    try {
+      return new Uint8Array((await this.deps.remote.downloadObject(path)).body);
+    } catch (error) {
+      if (!isMissingRemoteObjectError(error)) {
+        throw error;
+      }
+      manifestBefore.files[path] = {
+        ...(manifestBefore.files[path] ?? {
+          deleted: true,
+          etag: "",
+          mtime: Date.now(),
+          sha256: "",
+          size: 0,
+        }),
+        deleted: true,
+        encoding: "identity",
+        etag: "",
+        mtime: Date.now(),
+        sha256: "",
+        size: 0,
+      };
+      this.deps.logger.log({
+        level: "warning",
+        message: "Skipped remote rollback backup because the object was already missing; proceeding with push using a repaired tombstone",
+        operation: "manual",
+        path,
+      });
+      return null;
+    }
   }
 
   private async undoPush(action: ManualActionRecord): Promise<void> {

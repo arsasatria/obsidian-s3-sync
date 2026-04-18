@@ -285,6 +285,54 @@ describe("SyncOrchestrator", () => {
     expect(remote.files.has("new.md")).toBe(false);
   });
 
+  it("force push does not fail when remote manifest points to a missing object", async () => {
+    const localBody = new TextEncoder().encode("fresh local");
+    vault.addFile("Templates/MOC - Map of Content.md", localBody, 2000);
+    const staleRemote = Object.assign(new FakeRemoteStore(), remote, {
+      async listFiles() {
+        return {
+          "Templates/MOC - Map of Content.md": {
+            deleted: false,
+            etag: "etag-stale",
+            mtime: 1000,
+            sha256: "stale-hash",
+            size: 123,
+          },
+        };
+      },
+      async getManifest() {
+        return {
+          etag: "etag-1",
+          manifest: {
+            device_id: "device-b",
+            files: {
+              "Templates/MOC - Map of Content.md": {
+                deleted: false,
+                etag: "etag-stale",
+                mtime: 1000,
+                sha256: "stale-hash",
+                size: 123,
+              },
+            },
+            generated_at: new Date().toISOString(),
+            vault_name: "MockVault",
+            version: "1",
+          },
+        };
+      },
+      async downloadObject() {
+        throw new Error("Remote download failed [path=Templates/MOC - Map of Content.md]: status=404 name=NoSuchKey UnknownError");
+      },
+    });
+    const orchestrator = createOrchestrator({}, staleRemote as RemoteStore);
+
+    const result = await orchestrator.triggerFullSync({ direction: "push", force: true });
+
+    expect(result.summary.upload).toBe(1);
+    expect(staleRemote.files.has("Templates/MOC - Map of Content.md")).toBe(true);
+    expect(logger.entries.some((entry) => entry.message.includes("Skipped remote rollback backup because the object was already missing"))).toBe(true);
+  });
+
   it("force pull deletes local-only files and can undo the action", async () => {
     const remoteBody = new TextEncoder().encode("server");
     remote.files.set("server.md", remoteBody);
