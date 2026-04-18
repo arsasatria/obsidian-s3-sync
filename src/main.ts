@@ -248,7 +248,12 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       liveNotice = new Notice("S3 Sync: Starting full sync...", 0);
     }
     if (options?.dryRun || this.settings.dryRunDefault) {
-      const dryRun = await this.orchestrator.triggerFullSync({ direction: "bidirectional", dryRun: true, reason: options?.reason });
+      const dryRun = await this.orchestrator.triggerFullSync({
+        direction: "bidirectional",
+        dryRun: true,
+        localSafe: true,
+        reason: options?.reason,
+      });
       const confirmed = await new DryRunModal(this.app, dryRun.operations, dryRun.summary).openAndWait();
       if (!confirmed) {
         liveNotice?.hide();
@@ -259,6 +264,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
     try {
       const result = await this.orchestrator.triggerFullSync({
         direction: "bidirectional",
+        localSafe: true,
         notifyErrors: isManual,
         reason: options?.reason,
       });
@@ -379,6 +385,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
         direction: "pull",
         dryRun: options?.dryRun,
         force: forceMode,
+        localSafe: !isManual,
         notifyErrors: isManual,
         reason: options?.reason ?? "manual-pull",
       });

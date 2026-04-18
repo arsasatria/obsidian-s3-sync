@@ -53,4 +53,5 @@ export interface SyncExecutionOptions {
   notifyErrors?: boolean;
   reason?: string;
   force?: boolean;
+  localSafe?: boolean;
 }

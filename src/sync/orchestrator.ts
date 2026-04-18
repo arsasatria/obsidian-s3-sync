@@ -85,7 +85,14 @@ export class SyncOrchestrator {
               options?.direction ?? "bidirectional",
             )
       ).filter((operation) => operation.type !== "noop" && !this.excludeFilter.isExcluded(operation.path));
-      const effectiveOperations = this.summarizeOperationsForDirection(operations, options?.direction ?? "bidirectional", options?.force ?? false);
+      const localSafeOperations = options?.localSafe
+        ? this.protectLocalOperations(operations, local, lastSyncMap)
+        : operations;
+      const effectiveOperations = this.summarizeOperationsForDirection(
+        localSafeOperations,
+        options?.direction ?? "bidirectional",
+        options?.force ?? false,
+      );
       const summary = summarize(effectiveOperations);
 
       if (options?.dryRun) {
@@ -100,10 +107,10 @@ export class SyncOrchestrator {
 
       const manualAction =
         options?.force && (options?.direction === "push" || options?.direction === "pull")
-          ? await this.captureManualActionBackup(options.direction, operations, local, remote, lastSync, remoteResult.manifest)
+          ? await this.captureManualActionBackup(options.direction, effectiveOperations, local, remote, lastSync, remoteResult.manifest)
           : null;
       const updatedManifest = await this.executeOperations(
-        operations,
+        effectiveOperations,
         local,
         remoteResult.manifest,
         options?.direction ?? "bidirectional",
@@ -274,6 +281,35 @@ export class SyncOrchestrator {
       return operations.map((operation) => (operation.type === "conflict" ? { ...operation, type: "upload" } : operation));
     }
     return operations.map((operation) => (operation.type === "conflict" ? { ...operation, type: "download" } : operation));
+  }
+
+  private protectLocalOperations(
+    operations: SyncOperation[],
+    local: Map<string, { mtime: number; size: number; sha256: string }>,
+    lastSync: Map<string, { mtime: number; size: number; sha256: string } | FileEntry>,
+  ): SyncOperation[] {
+    const protectedOperations: SyncOperation[] = [];
+    for (const operation of operations) {
+      if (operation.type === "delete-local") {
+        continue;
+      }
+      if (operation.type === "download") {
+        const knownLocally = local.has(operation.path) || lastSync.has(operation.path);
+        if (!knownLocally) {
+          continue;
+        }
+        protectedOperations.push(operation);
+        continue;
+      }
+      if (operation.type === "conflict") {
+        if (local.has(operation.path)) {
+          protectedOperations.push({ ...operation, type: "upload" });
+        }
+        continue;
+      }
+      protectedOperations.push(operation);
+    }
+    return protectedOperations;
   }
 
   private async executeOperations(

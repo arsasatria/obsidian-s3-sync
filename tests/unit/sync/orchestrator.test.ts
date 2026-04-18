@@ -243,6 +243,24 @@ describe("SyncOrchestrator", () => {
     expect(vault.hasFile("listed.md")).toBe(true);
   });
 
+  it("local-safe sync does not create remote-only files locally", async () => {
+    const body = new TextEncoder().encode("ghost remote note");
+    remote.files.set("Untitled.md", body);
+    remote.manifest.files["Untitled.md"] = {
+      deleted: false,
+      etag: "etag-untitled",
+      mtime: 1000,
+      sha256: await sha256(body),
+      size: body.byteLength,
+    };
+    const orchestrator = createOrchestrator();
+
+    const result = await orchestrator.triggerFullSync({ direction: "bidirectional", localSafe: true });
+
+    expect(vault.hasFile("Untitled.md")).toBe(false);
+    expect(result.summary.download).toBe(0);
+  });
+
   it("force push deletes remote-only files and can undo the action", async () => {
     const remoteBody = new TextEncoder().encode("remote-only");
     remote.files.set("old.md", remoteBody);
@@ -317,7 +335,7 @@ describe("SyncOrchestrator", () => {
     await orchestrator.triggerFullSync({ direction: "push", reason: "incremental" });
 
     expect(vault.listPaths().some((path) => path.includes(".conflict-"))).toBe(false);
-    expect(logger.entries.some((entry) => entry.operation === "conflict" && entry.message.includes("resolved as upload during push sync"))).toBe(true);
+    expect(logger.entries.some((entry) => entry.operation === "upload" && entry.path === "Notes/live.md")).toBe(true);
   });
 
   it("reports directional push conflicts as synced uploads in summary and status", async () => {

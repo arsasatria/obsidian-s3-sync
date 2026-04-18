@@ -29895,7 +29895,12 @@ var SyncOrchestrator = class {
         this.differ.diff(local, lastSyncMap, remote).filter((operation2) => operation2.type !== "noop"),
         options?.direction ?? "bidirectional"
       )).filter((operation2) => operation2.type !== "noop" && !this.excludeFilter.isExcluded(operation2.path));
-      const effectiveOperations = this.summarizeOperationsForDirection(operations, options?.direction ?? "bidirectional", options?.force ?? false);
+      const localSafeOperations = options?.localSafe ? this.protectLocalOperations(operations, local, lastSyncMap) : operations;
+      const effectiveOperations = this.summarizeOperationsForDirection(
+        localSafeOperations,
+        options?.direction ?? "bidirectional",
+        options?.force ?? false
+      );
       const summary = summarize(effectiveOperations);
       if (options?.dryRun) {
         this.deps.logger.log({
@@ -29906,9 +29911,9 @@ var SyncOrchestrator = class {
         this.deps.status.setStatus(summary.conflict > 0 ? "conflict" : "idle", "Dry run completed");
         return { applied: false, operations: effectiveOperations, summary };
       }
-      const manualAction = options?.force && (options?.direction === "push" || options?.direction === "pull") ? await this.captureManualActionBackup(options.direction, operations, local, remote, lastSync, remoteResult.manifest) : null;
+      const manualAction = options?.force && (options?.direction === "push" || options?.direction === "pull") ? await this.captureManualActionBackup(options.direction, effectiveOperations, local, remote, lastSync, remoteResult.manifest) : null;
       const updatedManifest = await this.executeOperations(
-        operations,
+        effectiveOperations,
         local,
         remoteResult.manifest,
         options?.direction ?? "bidirectional",
@@ -30065,6 +30070,30 @@ var SyncOrchestrator = class {
       return operations.map((operation2) => operation2.type === "conflict" ? { ...operation2, type: "upload" } : operation2);
     }
     return operations.map((operation2) => operation2.type === "conflict" ? { ...operation2, type: "download" } : operation2);
+  }
+  protectLocalOperations(operations, local, lastSync) {
+    const protectedOperations = [];
+    for (const operation2 of operations) {
+      if (operation2.type === "delete-local") {
+        continue;
+      }
+      if (operation2.type === "download") {
+        const knownLocally = local.has(operation2.path) || lastSync.has(operation2.path);
+        if (!knownLocally) {
+          continue;
+        }
+        protectedOperations.push(operation2);
+        continue;
+      }
+      if (operation2.type === "conflict") {
+        if (local.has(operation2.path)) {
+          protectedOperations.push({ ...operation2, type: "upload" });
+        }
+        continue;
+      }
+      protectedOperations.push(operation2);
+    }
+    return protectedOperations;
   }
   async executeOperations(operations, local, remoteManifest, direction, force) {
     const manifestFiles = { ...remoteManifest.files };
@@ -31424,7 +31453,12 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
       liveNotice = new import_obsidian13.Notice("S3 Sync: Starting full sync...", 0);
     }
     if (options?.dryRun || this.settings.dryRunDefault) {
-      const dryRun = await this.orchestrator.triggerFullSync({ direction: "bidirectional", dryRun: true, reason: options?.reason });
+      const dryRun = await this.orchestrator.triggerFullSync({
+        direction: "bidirectional",
+        dryRun: true,
+        localSafe: true,
+        reason: options?.reason
+      });
       const confirmed = await new DryRunModal(this.app, dryRun.operations, dryRun.summary).openAndWait();
       if (!confirmed) {
         liveNotice?.hide();
@@ -31434,6 +31468,7 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
     try {
       const result = await this.orchestrator.triggerFullSync({
         direction: "bidirectional",
+        localSafe: true,
         notifyErrors: isManual,
         reason: options?.reason
       });
@@ -31551,6 +31586,7 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
         direction: "pull",
         dryRun: options?.dryRun,
         force: forceMode,
+        localSafe: !isManual,
         notifyErrors: isManual,
         reason: options?.reason ?? "manual-pull"
       });
