@@ -320,6 +320,38 @@ describe("SyncOrchestrator", () => {
     expect(logger.entries.some((entry) => entry.operation === "conflict" && entry.message.includes("resolved as upload during push sync"))).toBe(true);
   });
 
+  it("reports directional push conflicts as synced uploads in summary and status", async () => {
+    const localBody = new TextEncoder().encode("local version");
+    const remoteBody = new TextEncoder().encode("remote version");
+    const baseBody = new TextEncoder().encode("base");
+    const baseHash = await sha256(baseBody);
+    vault.addFile("Notes/status.md", localBody, 2000);
+    remote.files.set("Notes/status.md", remoteBody);
+    remote.manifest.files["Notes/status.md"] = {
+      deleted: false,
+      etag: "etag-remote",
+      mtime: 3000,
+      sha256: await sha256(remoteBody),
+      size: remoteBody.byteLength,
+    };
+    await store.save({
+      files: {
+        "Notes/status.md": { mtime: 1000, sha256: baseHash, size: baseBody.byteLength },
+      },
+      remote_manifest_etag: "etag",
+      synced_at: new Date().toISOString(),
+    });
+    const orchestrator = createOrchestrator({ defaultConflictRule: "keep-both" });
+
+    const result = await orchestrator.triggerFullSync({ direction: "push", reason: "incremental" });
+
+    expect(result.summary.conflict).toBe(0);
+    expect(result.summary.upload).toBe(1);
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0]).toMatchObject({ path: "Notes/status.md", type: "upload", localMtime: 2000 });
+    expect(status.states.at(-1)?.status).toBe("idle");
+  });
+
   it("reports sync errors", async () => {
     const brokenRemote = Object.assign(new FakeRemoteStore(), remote, {
       async getManifest() {

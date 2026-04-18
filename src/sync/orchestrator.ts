@@ -85,7 +85,8 @@ export class SyncOrchestrator {
               options?.direction ?? "bidirectional",
             )
       ).filter((operation) => operation.type !== "noop" && !this.excludeFilter.isExcluded(operation.path));
-      const summary = summarize(operations);
+      const effectiveOperations = this.summarizeOperationsForDirection(operations, options?.direction ?? "bidirectional", options?.force ?? false);
+      const summary = summarize(effectiveOperations);
 
       if (options?.dryRun) {
         this.deps.logger.log({
@@ -94,7 +95,7 @@ export class SyncOrchestrator {
           operation: "system",
         });
         this.deps.status.setStatus(summary.conflict > 0 ? "conflict" : "idle", "Dry run completed");
-        return { applied: false, operations, summary };
+        return { applied: false, operations: effectiveOperations, summary };
       }
 
       const manualAction =
@@ -129,7 +130,7 @@ export class SyncOrchestrator {
         message: `Sync complete: ${summary.upload} upload, ${summary.download} download, ${summary.deleteLocal} delete-local, ${summary.deleteRemote} delete-remote, ${summary.conflict} conflict`,
         operation: "system",
       });
-      return { applied: true, operations, summary };
+      return { applied: true, operations: effectiveOperations, summary };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.deps.logger.log({ level: "error", message, operation: "system" });
@@ -259,6 +260,20 @@ export class SyncOrchestrator {
       return settings.excludePatterns.filter((pattern) => !pattern.startsWith(".obsidian/"));
     }
     return [...settings.excludePatterns];
+  }
+
+  private summarizeOperationsForDirection(
+    operations: SyncOperation[],
+    direction: "bidirectional" | "push" | "pull",
+    force: boolean,
+  ): SyncOperation[] {
+    if (force || direction === "bidirectional") {
+      return operations;
+    }
+    if (direction === "push") {
+      return operations.map((operation) => (operation.type === "conflict" ? { ...operation, type: "upload" } : operation));
+    }
+    return operations.map((operation) => (operation.type === "conflict" ? { ...operation, type: "download" } : operation));
   }
 
   private async executeOperations(

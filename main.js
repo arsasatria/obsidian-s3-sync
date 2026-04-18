@@ -29892,7 +29892,8 @@ var SyncOrchestrator = class {
         this.differ.diff(local, lastSyncMap, remote).filter((operation2) => operation2.type !== "noop"),
         options?.direction ?? "bidirectional"
       )).filter((operation2) => operation2.type !== "noop" && !this.excludeFilter.isExcluded(operation2.path));
-      const summary = summarize(operations);
+      const effectiveOperations = this.summarizeOperationsForDirection(operations, options?.direction ?? "bidirectional", options?.force ?? false);
+      const summary = summarize(effectiveOperations);
       if (options?.dryRun) {
         this.deps.logger.log({
           level: "info",
@@ -29900,7 +29901,7 @@ var SyncOrchestrator = class {
           operation: "system"
         });
         this.deps.status.setStatus(summary.conflict > 0 ? "conflict" : "idle", "Dry run completed");
-        return { applied: false, operations, summary };
+        return { applied: false, operations: effectiveOperations, summary };
       }
       const manualAction = options?.force && (options?.direction === "push" || options?.direction === "pull") ? await this.captureManualActionBackup(options.direction, operations, local, remote, lastSync, remoteResult.manifest) : null;
       const updatedManifest = await this.executeOperations(
@@ -29930,7 +29931,7 @@ var SyncOrchestrator = class {
         message: `Sync complete: ${summary.upload} upload, ${summary.download} download, ${summary.deleteLocal} delete-local, ${summary.deleteRemote} delete-remote, ${summary.conflict} conflict`,
         operation: "system"
       });
-      return { applied: true, operations, summary };
+      return { applied: true, operations: effectiveOperations, summary };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.deps.logger.log({ level: "error", message, operation: "system" });
@@ -30052,6 +30053,15 @@ var SyncOrchestrator = class {
       return settings.excludePatterns.filter((pattern) => !pattern.startsWith(".obsidian/"));
     }
     return [...settings.excludePatterns];
+  }
+  summarizeOperationsForDirection(operations, direction, force) {
+    if (force || direction === "bidirectional") {
+      return operations;
+    }
+    if (direction === "push") {
+      return operations.map((operation2) => operation2.type === "conflict" ? { ...operation2, type: "upload" } : operation2);
+    }
+    return operations.map((operation2) => operation2.type === "conflict" ? { ...operation2, type: "download" } : operation2);
   }
   async executeOperations(operations, local, remoteManifest, direction, force) {
     const manifestFiles = { ...remoteManifest.files };
