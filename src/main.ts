@@ -1,4 +1,4 @@
-import { Notice, Platform, Plugin } from "obsidian";
+import { Menu, Notice, Platform, Plugin } from "obsidian";
 import { createS3Client } from "./s3/client";
 import { AwsRemoteStore } from "./s3/store";
 import { DEFAULT_EXCLUDES, DEFAULT_SETTINGS, type PluginSettings, type SyncLogEntry } from "./types/settings";
@@ -60,7 +60,7 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       sync: () => void this.runSync(),
       undo: () => void this.undoLastManualAction(),
     });
-    this.addRibbonIcon("activity", "S3 Sync: Live monitor", () => void this.openMonitorView());
+    this.addRibbonIcon("activity", "S3 Sync", (event) => this.openRibbonMenu(event));
     this.createOrchestrator();
     this.addSettingTab(new S3SyncSettingTab(this));
 
@@ -222,6 +222,40 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       type: MONITOR_VIEW_TYPE,
     });
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  openRibbonMenu(event?: MouseEvent): void {
+    if (!event) {
+      void this.openMonitorView();
+      return;
+    }
+    const menu = new Menu();
+    menu.addItem((item) => item
+      .setTitle("Sync now")
+      .setIcon("refresh-cw")
+      .onClick(() => void this.runSync()));
+    menu.addItem((item) => item
+      .setTitle("Force local -> S3")
+      .setIcon("upload")
+      .onClick(() => void this.runPush()));
+    menu.addItem((item) => item
+      .setTitle("Force S3 -> local")
+      .setIcon("download")
+      .onClick(() => void this.runPull()));
+    menu.addItem((item) => item
+      .setTitle("Undo last push/pull")
+      .setIcon("undo-2")
+      .onClick(() => void this.undoLastManualAction()));
+    menu.addSeparator();
+    menu.addItem((item) => item
+      .setTitle("Open live monitor")
+      .setIcon("activity")
+      .onClick(() => void this.openMonitorView()));
+    menu.addItem((item) => item
+      .setTitle("Open sync log")
+      .setIcon("list")
+      .onClick(() => void this.openLogView()));
+    menu.showAtMouseEvent(event);
   }
 
   async testConnection(): Promise<void> {

@@ -31355,7 +31355,7 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
       sync: () => void this.runSync(),
       undo: () => void this.undoLastManualAction()
     });
-    this.addRibbonIcon("activity", "S3 Sync: Live monitor", () => void this.openMonitorView());
+    this.addRibbonIcon("activity", "S3 Sync", (event) => this.openRibbonMenu(event));
     this.createOrchestrator();
     this.addSettingTab(new S3SyncSettingTab(this));
     this.addCommand({
@@ -31504,6 +31504,21 @@ var ObsidianS3SyncPlugin = class extends import_obsidian13.Plugin {
       type: MONITOR_VIEW_TYPE
     });
     this.app.workspace.revealLeaf(leaf);
+  }
+  openRibbonMenu(event) {
+    if (!event) {
+      void this.openMonitorView();
+      return;
+    }
+    const menu = new import_obsidian13.Menu();
+    menu.addItem((item) => item.setTitle("Sync now").setIcon("refresh-cw").onClick(() => void this.runSync()));
+    menu.addItem((item) => item.setTitle("Force local -> S3").setIcon("upload").onClick(() => void this.runPush()));
+    menu.addItem((item) => item.setTitle("Force S3 -> local").setIcon("download").onClick(() => void this.runPull()));
+    menu.addItem((item) => item.setTitle("Undo last push/pull").setIcon("undo-2").onClick(() => void this.undoLastManualAction()));
+    menu.addSeparator();
+    menu.addItem((item) => item.setTitle("Open live monitor").setIcon("activity").onClick(() => void this.openMonitorView()));
+    menu.addItem((item) => item.setTitle("Open sync log").setIcon("list").onClick(() => void this.openLogView()));
+    menu.showAtMouseEvent(event);
   }
   async testConnection() {
     try {
