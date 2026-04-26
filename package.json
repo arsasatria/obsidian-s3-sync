@@ -1,6 +1,6 @@
 {
   "name": "obsidian-s3-sync",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "S3-compatible sync plugin for Obsidian",
   "main": "main.js",
   "engines": {

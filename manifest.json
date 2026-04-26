@@ -1,7 +1,7 @@
 {
   "id": "obsidian-s3-sync",
   "name": "S3 Sync",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minAppVersion": "1.5.0",
   "description": "Sync your Obsidian vault to any S3-compatible object storage with conflict resolution and visibility.",
   "author": "Arsa Satria",

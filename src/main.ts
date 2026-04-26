@@ -60,7 +60,6 @@ export default class ObsidianS3SyncPlugin extends Plugin {
       sync: () => void this.runSync(),
       undo: () => void this.undoLastManualAction(),
     });
-    this.addRibbonIcon("activity", "S3 Sync", (event) => this.openRibbonMenu(event));
     this.createOrchestrator();
     this.addSettingTab(new S3SyncSettingTab(this));
 

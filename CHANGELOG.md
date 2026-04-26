@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Changed the ribbon integration to use a single cloud action menu instead of duplicate ribbon buttons.
+
 ## 1.0.0
 
 - Initial release of `Obsidian S3 Sync`.
